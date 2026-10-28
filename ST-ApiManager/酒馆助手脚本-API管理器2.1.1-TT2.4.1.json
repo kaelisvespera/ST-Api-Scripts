@@ -1,0 +1,22 @@
+{
+  "type": "script",
+  "enabled": true,
+  "name": "💡API管理器2.1.1-TT2.4.1",
+  "id": "d1c10d61-1360-4657-b816-7a64893eddc9",
+  "content": "import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@main/ST-ApiManager/index-2.1.1-tt2.4.js?v=tt2.4.1'",
+  "info": "TauriTavern 2.4 适配版。修复测试调用、宿主模块路径与同站点新增模型覆盖分组；配置保存在 TT 扩展存储。使用前停用旧版，避免重复运行。",
+  "button": {
+    "enabled": false,
+    "buttons": [
+      {
+        "name": "API 管理",
+        "visible": true
+      }
+    ]
+  },
+  "data": {},
+  "export_with": {
+    "data": true,
+    "button": true
+  }
+}
