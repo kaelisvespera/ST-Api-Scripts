@@ -7,13 +7,13 @@
 先停用旧版 API 管理器，再将 [导入文件](ST-ApiManager/酒馆助手脚本-API管理器2.1.1-TT2.4.2.json) 导入酒馆助手的脚本库并启用。也可以将原脚本的内容替换为：
 
 ```js
-import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@main/ST-ApiManager/index-2.1.1-tt2.4.js?v=tt2.4.2'
+import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@7ca4c1eb7f22483cbe0f1d111c87282f248cb711/ST-ApiManager/index-2.1.1-tt2.4.js'
 ```
 
 若镜像无法访问，可改用 jsDelivr：
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@main/ST-ApiManager/index-2.1.1-tt2.4.js?v=tt2.4.2'
+import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@7ca4c1eb7f22483cbe0f1d111c87282f248cb711/ST-ApiManager/index-2.1.1-tt2.4.js'
 ```
 
 需要 TauriTavern 2.4 和已启用的酒馆助手；这是酒馆助手脚本，不通过 TT 的原生扩展管理器安装。入口仍在 API 连接区和扩展菜单中，也保留脚本按钮及 `/st-api-manager` 命令。
