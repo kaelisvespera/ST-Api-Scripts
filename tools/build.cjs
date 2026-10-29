@@ -32,7 +32,7 @@ const applyStart = code.indexOf('async function Ac(');
 const applyEnd = code.indexOf('function cc(', applyStart);
 if (applyStart < 0 || applyEnd < 0) throw new Error('Cannot find native settings writer');
 code = code.slice(0, applyStart) + fs.readFileSync(path.join(root, 'src', 'tt-apply-settings.js'), 'utf8') + '\n' + code.slice(applyEnd);
-replaceOnce("wl='2.1.1'", "wl='2.1.1-tt2.4.3'");
+replaceOnce("wl='2.1.1'", "wl='2.1.1-tt2.4.4'");
 code = code.replace(/\n\/\/# sourceMappingURL=index\.js\.map\s*$/, '\n');
 const output = fs.readFileSync(path.join(root, 'src', 'tt-bootstrap.js'), 'utf8') + '\n' + code;
 fs.writeFileSync(path.join(root, 'ST-ApiManager', 'index-2.1.1-tt2.4.js'), output);

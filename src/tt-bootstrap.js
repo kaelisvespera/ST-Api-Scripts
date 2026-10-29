@@ -43,20 +43,25 @@ const localStorage = {
 };
 export async function flushTauriTavernStorage() { await ttPendingStorage; }
 
+// Module maps belong to each Window, even for an identical absolute URL.
+// Create the importer in TT's realm so native modules share its initialized
+// globals and live secret state instead of booting TT again inside the iframe.
+const ttImportHostModule = ttHost.Function('specifier', 'return import(specifier)');
+
 // Use the host's public popup API rather than resolving /scripts on the CDN.
 async function ttPopupApi() {
   const context = ttHost.SillyTavern?.getContext?.();
   if (context?.Popup?.show && context.POPUP_RESULT) {
     return { Popup: context.Popup, POPUP_RESULT: context.POPUP_RESULT };
   }
-  return import(new URL('/scripts/popup.js', ttHost.location.href).href);
+  return ttImportHostModule(new URL('/scripts/popup.js', ttHost.location.href).href);
 }
 async function ttSecretsApi() {
-  return import(new URL('/scripts/secrets.js', ttHost.location.href).href);
+  return ttImportHostModule(new URL('/scripts/secrets.js', ttHost.location.href).href);
 }
 // Use TT's own batch-apply scope, also used by its connection manager.
 async function ttWithConnectionValidationSuspended(callback) {
-  const { withConnectionValidationSuspended } = await import(new URL('/script.js', ttHost.location.href).href);
+  const { withConnectionValidationSuspended } = await ttImportHostModule(new URL('/script.js', ttHost.location.href).href);
   return withConnectionValidationSuspended('API 管理器应用配置', callback);
 }
 function ttGenerateRaw(config) {

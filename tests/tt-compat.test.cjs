@@ -21,7 +21,7 @@ function extract(start, end) {
 }
 
 async function load(options = {}) {
-    const writes = [], toasts = [], errors = [], imports = [], reads = [], calls = [];
+    const writes = [], toasts = [], errors = [], imports = [], frameImports = [], reads = [], calls = [];
     const old = options.old || {};
     const store = {
         async tryGetJson(entry) {
@@ -59,24 +59,34 @@ async function load(options = {}) {
         console: { error: (...args) => errors.push(args), warn() {}, log() {} },
         ...(options.globals || {}),
     });
-    const module = new vm.SourceTextModule(bootstrap + '\n' + (options.extra || '') + '\n' +
-        'export { localStorage as storage, fetch as hostFetch, ttPopupApi, ttSecretsApi, ttGenerateRaw, ttWithConnectionValidationSuspended };', {
-        context,
-        async importModuleDynamically(specifier) {
+    // Calling the host realm's Function creates its dynamic import in that realm.
+    host.Function = function (parameter, body) {
+        assert.equal(parameter, 'specifier');
+        assert.equal(body, 'return import(specifier)');
+        return async specifier => {
             imports.push(specifier);
+            if (options.importError) throw options.importError;
             const values = options.importValues || { Popup: { show: {} }, POPUP_RESULT: { AFFIRMATIVE: 1 } };
             const imported = new vm.SyntheticModule(Object.keys(values), function () {
                 for (const [name, value] of Object.entries(values)) this.setExport(name, value);
             }, { context });
             await imported.link(() => {});
             await imported.evaluate();
-            return imported;
+            return imported.namespace;
+        };
+    };
+    const module = new vm.SourceTextModule(bootstrap + '\n' + (options.extra || '') + '\n' +
+        'export { localStorage as storage, fetch as hostFetch, ttPopupApi, ttSecretsApi, ttGenerateRaw, ttWithConnectionValidationSuspended };', {
+        context,
+        async importModuleDynamically(specifier) {
+            frameImports.push(specifier);
+            throw new Error('Host modules must not load in the iframe realm');
         },
     });
     await module.link(() => { throw new Error('Unexpected static import'); });
     const evaluation = module.evaluate();
     if (!options.deferEvaluate) await evaluation;
-    return { module, evaluation, api: module.namespace, host, frame, store, writes, toasts, errors, imports, reads, calls };
+    return { module, evaluation, api: module.namespace, host, frame, store, writes, toasts, errors, imports, frameImports, reads, calls };
 }
 
 test('loads TT state before readers and leaves old browser state intact', async () => {
@@ -178,11 +188,20 @@ test('prefers public host context Popup API', async () => {
     assert.deepEqual(app.imports, []);
 });
 
-test('resolves popup and secrets module imports against TT host origin', async () => {
+test('imports popup and secrets modules in the host realm using TT host origin', async () => {
     const app = await load();
     await app.api.ttPopupApi();
     await app.api.ttSecretsApi();
     assert.deepEqual(app.imports, ['tauri://localhost/scripts/popup.js', 'tauri://localhost/scripts/secrets.js']);
+    assert.deepEqual(app.frameImports, []);
+});
+
+test('host module import failures propagate without retrying in the iframe', async () => {
+    const failure = new Error('host import failed');
+    const app = await load({ importError: failure });
+    await assert.rejects(app.api.ttSecretsApi(), error => error === failure);
+    assert.deepEqual(app.imports, ['tauri://localhost/scripts/secrets.js']);
+    assert.deepEqual(app.frameImports, []);
 });
 
 test('uses injected Tavern Helper generateRaw and preserves its parameters', async () => {
