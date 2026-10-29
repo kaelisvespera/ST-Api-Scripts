@@ -54,6 +54,11 @@ async function ttPopupApi() {
 async function ttSecretsApi() {
   return import(new URL('/scripts/secrets.js', ttHost.location.href).href);
 }
+// Use TT's own batch-apply scope, also used by its connection manager.
+async function ttWithConnectionValidationSuspended(callback) {
+  const { withConnectionValidationSuspended } = await import(new URL('/script.js', ttHost.location.href).href);
+  return withConnectionValidationSuspended('API 管理器应用配置', callback);
+}
 function ttGenerateRaw(config) {
   // This is Tavern Helper's function; SillyTavern.getContext().generateRaw has
   // a different signature and silently ignores custom_api / ordered_prompts.

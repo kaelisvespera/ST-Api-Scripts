@@ -60,7 +60,7 @@ async function load(options = {}) {
         ...(options.globals || {}),
     });
     const module = new vm.SourceTextModule(bootstrap + '\n' + (options.extra || '') + '\n' +
-        'export { localStorage as storage, fetch as hostFetch, ttPopupApi, ttSecretsApi, ttGenerateRaw };', {
+        'export { localStorage as storage, fetch as hostFetch, ttPopupApi, ttSecretsApi, ttGenerateRaw, ttWithConnectionValidationSuspended };', {
         context,
         async importModuleDynamically(specifier) {
             imports.push(specifier);
@@ -237,4 +237,19 @@ test('patched bundle model status request declares TT OpenAI-compatible wire for
     assert.equal(body.custom_api_format, 'openai_compat');
     assert.equal(body.custom_url, 'https://example.invalid/v1');
     assert.deepEqual(JSON.parse(body.custom_include_headers), { Authorization: 'Bearer fake-key' });
+});
+
+test('uses the TT host batch-apply API and preserves its callback result and errors', async () => {
+    const calls = [];
+    const app = await load({ importValues: {
+        async withConnectionValidationSuspended(reason, callback) {
+            calls.push(reason);
+            return callback();
+        },
+    } });
+    assert.equal(await app.api.ttWithConnectionValidationSuspended(() => 42), 42);
+    const failure = new Error('callback failed');
+    await assert.rejects(app.api.ttWithConnectionValidationSuspended(() => { throw failure; }), failure);
+    assert.deepEqual(app.imports, ['tauri://localhost/script.js', 'tauri://localhost/script.js']);
+    assert.equal(calls.length, 2);
 });
