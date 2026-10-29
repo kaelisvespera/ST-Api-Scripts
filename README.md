@@ -1,28 +1,31 @@
 # ST-Api-Scripts
 
-酒馆助手 API 管理器 2.1.1 的 TauriTavern 2.4 适配版，当前版本 `2.1.1-tt2.4.2`。
+酒馆助手 API 管理器 2.1.1 的 TauriTavern 2.4 适配版，当前版本 `2.1.1-tt2.4.3`。
 
 ## 使用
 
-先停用旧版 API 管理器，再将 [导入文件](ST-ApiManager/酒馆助手脚本-API管理器2.1.1-TT2.4.2.json) 导入酒馆助手的脚本库并启用。也可以将原脚本的内容替换为：
+先停用旧版 API 管理器，再将 [导入文件](ST-ApiManager/酒馆助手脚本-API管理器2.1.1-TT2.4.3.json) 导入酒馆助手的脚本库并启用。也可以将原脚本的内容替换为：
 
 ```js
-import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@7ca4c1eb7f22483cbe0f1d111c87282f248cb711/ST-ApiManager/index-2.1.1-tt2.4.js'
+import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@1f455936980c01f7be2dab4a398240a30221b061/ST-ApiManager/index-2.1.1-tt2.4.js'
 ```
 
 若镜像无法访问，可改用 jsDelivr：
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@7ca4c1eb7f22483cbe0f1d111c87282f248cb711/ST-ApiManager/index-2.1.1-tt2.4.js'
+import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@1f455936980c01f7be2dab4a398240a30221b061/ST-ApiManager/index-2.1.1-tt2.4.js'
 ```
 
 需要 TauriTavern 2.4 和已启用的酒馆助手；这是酒馆助手脚本，不通过 TT 的原生扩展管理器安装。入口仍在 API 连接区和扩展菜单中，也保留脚本按钮及 `/st-api-manager` 命令。
 
 ## 修复
 
+- `TT2.4.3` 修复缓存的 `secretId` 与配置中的 Key 不一致时仍启用旧密钥的问题。TT 状态请求按原生 `secret_id` 选择密钥，仅填写设置对象中的 Key 无法替换它。现在按密钥内容的 SHA-256 指纹和原生密钥类型保存本机绑定，并核对 ID 仍存在；不把脱敏值或标签当作密钥原文。
+- 整套配置在 TT 原生 `withConnectionValidationSuspended` 作用域内应用，完成后仅显式连接一次；生成前注册轮换密钥也使用同一套绑定。首次遇到无法验证的旧 ID 时，会重新登记该 Key，后续切换和刷新复用已验证绑定。
+
 - `TT2.4.2` 修复关闭“AI 响应设置”抽屉时的应用超时；该抽屉中的 `#openai_settings` 会被 TT 的 Panel Runtime 移出 DOM，应用连接配置无需等待它。
 - 应用及分类切换只写入已保存的连接配置并发起原生连接，不再强制先拉模型列表；“检测”和“发送测试消息”保留网络验证。应用成功不会虚报健康检测成功，也不会改变当前 Key 索引。
-- 密钥先完成本地同步，再触发一次来源切换。原生 Key 输入框保持空白，避免原生连接再次保存同一密钥；具体的本地错误会原样显示。
+- 密钥先完成本地同步，再在暂停验证作用域中同步来源。原生 Key 输入框保持空白，避免原生连接再次保存同一密钥；具体的本地错误会原样显示。
 - 测试消息调用酒馆助手的 `generateRaw`，使指定的 URL、Key、模型和来源生效。
 - 弹窗和密钥模块从 TT 宿主加载，避免根路径被解析到 CDN。
 - 请求通过宿主的 fetch 桥发送，模型状态请求明确使用 OpenAI 兼容格式。
@@ -43,9 +46,9 @@ node tools/build.cjs
 node --experimental-vm-modules --test tests/*.test.cjs
 ```
 
-46 项回归测试通过，覆盖原版超时复现、抽屉关闭及空模型列表、密钥同步后仅重连一次、分组、激活模型及 Key 轮换保留、存储迁移和失败处理。浏览器模拟环境验证了抽屉从 DOM 移除且模型列表请求始终不返回时，仍能切换到指定模型并发起原生连接；也已验证初始化、添加 Key、模型拉取、保存和刷新恢复。尚未在用户的真实手机 TT 2.4 安装及付费 API 上实测。
+58 项回归测试通过，覆盖旧密钥 ID 指向错误 Key、密钥被编辑或 ID 丢失、相同脱敏后缀、重复应用及刷新复用、轮换注册后恢复活跃密钥，以及原版超时复现、分组和存储迁移。配置应用集成测试同时运行真实的密钥同步及原生读写封装，核对最终连接的 URL、模型、secret_id 和密钥内容。浏览器模拟环境验证了抽屉从 DOM 移除且模型列表请求始终不返回时，仍能切换到指定模型并发起原生连接；也已验证初始化、添加 Key、模型拉取、保存和刷新恢复。尚未在用户的真实手机 TT 2.4 安装及付费 API 上实测。
 
-“应用完成”表示连接设置已写入；服务商是否可用仍以原生连接状态或主动检测为准。`src/tt-apply-settings.js` 保存本地配置写入逻辑，`tools/create-apply-patch.cjs` 修正应用及分类切换流程。
+“应用完成”表示连接设置已写入；服务商是否可用仍以原生连接状态或主动检测为准。`src/tt-secrets.js` 保存密钥绑定与注册逻辑，`src/tt-apply-settings.js` 保存本地配置写入逻辑，`tools/create-apply-patch.cjs` 修正应用及分类切换流程。
 
 `src/upstream-index-2.1.1.js` 保留作者发布的原始构建；`src/tt-bootstrap.js` 和 `tools/grouping-patch.cjs` 保存适配代码，构建时生成可远程 import 的单文件。
 
@@ -54,6 +57,8 @@ node --experimental-vm-modules --test tests/*.test.cjs
 - [原作者 samiytaa / ST-AllInOneFloatOrb](https://github.com/samiytaa/ST-AllInOneFloatOrb/blob/e5ecd8c91547b6a4cb12a59915350e6edc240f98/ST-ApiManager/index-2.1.1.js)
 - [TT 2.4 扩展存储 API](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/docs/API/Extension.md)
 - [TT 关闭设置抽屉时的 DOM 停车逻辑](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/tauri/main/adapters/panel-runtime/top-settings-panel-parking.js#L37)
+- [TT 原生暂停连接验证](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/script.js#L1365)
+- [TT 状态请求使用原生密钥 ID](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/scripts/openai.js#L6351)
 - [TT 的 generateRaw](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/script.js#L4891)
 - [酒馆助手 GenerateRawConfig](https://github.com/N0VI028/JS-Slash-Runner/blob/e71c990607f6c92127151b1f8dad6c79fa03966e/src/function/generate/types.ts#L130)
 
