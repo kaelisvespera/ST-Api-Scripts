@@ -43,26 +43,14 @@ const localStorage = {
 };
 export async function flushTauriTavernStorage() { await ttPendingStorage; }
 
-// Module maps belong to each Window, even for an identical absolute URL.
-// Create the importer in TT's realm so native modules share its initialized
-// globals and live secret state instead of booting TT again inside the iframe.
-const ttImportHostModule = ttHost.Function('specifier', 'return import(specifier)');
-
-// Use the host's public popup API rather than resolving /scripts on the CDN.
+// Use the initialized public context. Native modules must not be imported
+// from a helper iframe: TT's bootstrap graph may have another entry URL.
 async function ttPopupApi() {
   const context = ttHost.SillyTavern?.getContext?.();
-  if (context?.Popup?.show && context.POPUP_RESULT) {
-    return { Popup: context.Popup, POPUP_RESULT: context.POPUP_RESULT };
+  if (!context?.Popup?.show || !context.POPUP_RESULT) {
+    throw new Error('酒馆未提供已初始化的弹窗接口');
   }
-  return ttImportHostModule(new URL('/scripts/popup.js', ttHost.location.href).href);
-}
-async function ttSecretsApi() {
-  return ttImportHostModule(new URL('/scripts/secrets.js', ttHost.location.href).href);
-}
-// Use TT's own batch-apply scope, also used by its connection manager.
-async function ttWithConnectionValidationSuspended(callback) {
-  const { withConnectionValidationSuspended } = await ttImportHostModule(new URL('/script.js', ttHost.location.href).href);
-  return withConnectionValidationSuspended('API 管理器应用配置', callback);
+  return { Popup: context.Popup, POPUP_RESULT: context.POPUP_RESULT };
 }
 function ttGenerateRaw(config) {
   // This is Tavern Helper's function; SillyTavern.getContext().generateRaw has

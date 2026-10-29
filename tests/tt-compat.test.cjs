@@ -59,24 +59,9 @@ async function load(options = {}) {
         console: { error: (...args) => errors.push(args), warn() {}, log() {} },
         ...(options.globals || {}),
     });
-    // Calling the host realm's Function creates its dynamic import in that realm.
-    host.Function = function (parameter, body) {
-        assert.equal(parameter, 'specifier');
-        assert.equal(body, 'return import(specifier)');
-        return async specifier => {
-            imports.push(specifier);
-            if (options.importError) throw options.importError;
-            const values = options.importValues || { Popup: { show: {} }, POPUP_RESULT: { AFFIRMATIVE: 1 } };
-            const imported = new vm.SyntheticModule(Object.keys(values), function () {
-                for (const [name, value] of Object.entries(values)) this.setExport(name, value);
-            }, { context });
-            await imported.link(() => {});
-            await imported.evaluate();
-            return imported.namespace;
-        };
-    };
+    host.Function = () => { throw new Error('Do not construct a host module importer'); };
     const module = new vm.SourceTextModule(bootstrap + '\n' + (options.extra || '') + '\n' +
-        'export { localStorage as storage, fetch as hostFetch, ttPopupApi, ttSecretsApi, ttGenerateRaw, ttWithConnectionValidationSuspended };', {
+        'export { localStorage as storage, fetch as hostFetch, ttPopupApi, ttGenerateRaw };', {
         context,
         async importModuleDynamically(specifier) {
             frameImports.push(specifier);
@@ -188,19 +173,10 @@ test('prefers public host context Popup API', async () => {
     assert.deepEqual(app.imports, []);
 });
 
-test('imports popup and secrets modules in the host realm using TT host origin', async () => {
+test('missing public popup fails without importing any native module', async () => {
     const app = await load();
-    await app.api.ttPopupApi();
-    await app.api.ttSecretsApi();
-    assert.deepEqual(app.imports, ['tauri://localhost/scripts/popup.js', 'tauri://localhost/scripts/secrets.js']);
-    assert.deepEqual(app.frameImports, []);
-});
-
-test('host module import failures propagate without retrying in the iframe', async () => {
-    const failure = new Error('host import failed');
-    const app = await load({ importError: failure });
-    await assert.rejects(app.api.ttSecretsApi(), error => error === failure);
-    assert.deepEqual(app.imports, ['tauri://localhost/scripts/secrets.js']);
+    await assert.rejects(app.api.ttPopupApi(), /未提供已初始化的弹窗接口/);
+    assert.deepEqual(app.imports, []);
     assert.deepEqual(app.frameImports, []);
 });
 
@@ -258,17 +234,8 @@ test('patched bundle model status request declares TT OpenAI-compatible wire for
     assert.deepEqual(JSON.parse(body.custom_include_headers), { Authorization: 'Bearer fake-key' });
 });
 
-test('uses the TT host batch-apply API and preserves its callback result and errors', async () => {
-    const calls = [];
-    const app = await load({ importValues: {
-        async withConnectionValidationSuspended(reason, callback) {
-            calls.push(reason);
-            return callback();
-        },
-    } });
-    assert.equal(await app.api.ttWithConnectionValidationSuspended(() => 42), 42);
-    const failure = new Error('callback failed');
-    await assert.rejects(app.api.ttWithConnectionValidationSuspended(() => { throw failure; }), failure);
-    assert.deepEqual(app.imports, ['tauri://localhost/script.js', 'tauri://localhost/script.js']);
-    assert.equal(calls.length, 2);
+test('initialization never constructs or imports native host modules', async () => {
+    const app = await load();
+    assert.deepEqual(app.imports, []);
+    assert.deepEqual(app.frameImports, []);
 });

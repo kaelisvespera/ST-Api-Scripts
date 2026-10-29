@@ -12,7 +12,7 @@ const bindingKey = 'st_api_manager_tt_secret_bindings_v1';
 
 function createHost(initial = {}, existingStorage = new Map()) {
   const stores = structuredClone(initial);
-  const writes = [], rotations = [];
+  const writes = [], rotations = [], requests = [];
   let failWrite = false, failRotate = false, serial = 0;
   const localStorage = {
     getItem: key => existingStorage.has(key) ? existingStorage.get(key) : null,
@@ -20,44 +20,52 @@ function createHost(initial = {}, existingStorage = new Map()) {
     removeItem: key => existingStorage.delete(key),
   };
   const state = {
-    async JA() {
-      return Object.fromEntries(Object.entries(stores).map(([key, items]) => [key,
-        items.map(({ value, visible, ...item }) => visible ? { ...item, value } : { ...item })]));
+    async fetch(url, init) {
+      requests.push({ url, init });
+      if (url === '/api/secrets/read') {
+        return { ok: true, async json() {
+          return Object.fromEntries(Object.entries(stores).map(([key, items]) => [key,
+            items.map(({ value, visible, ...item }) => visible ? { ...item, value } : { ...item })]));
+        } };
+      }
+      const { key, value, label, id } = JSON.parse(init.body);
+      if (url === '/api/secrets/write') {
+        if (failWrite) return { ok: false, status: 503 };
+        const items = stores[key] ||= [];
+        for (const item of items) item.active = false;
+        const newId = `created-${++serial}`;
+        items.push({ id: newId, value, label, active: true });
+        writes.push({ key, value, id: newId });
+        return { ok: true, async json() { return { id: newId }; } };
+      }
+      if (url === '/api/secrets/rotate') {
+        if (failRotate) return { ok: false, status: 503 };
+        const items = stores[key] || [];
+        if (!items.some(item => item.id === id)) return { ok: false, status: 404 };
+        for (const item of items) item.active = item.id === id;
+        rotations.push({ key, id });
+        return { ok: true, async json() { throw new Error('rotate body must not be read'); } };
+      }
+      throw new Error(`Unexpected transport: ${url}`);
     },
-    async WA(context, key, value, label) {
-      if (failWrite) throw new Error('write failed');
-      const items = stores[key] ||= [];
-      for (const item of items) item.active = false;
-      const id = `created-${++serial}`;
-      items.push({ id, value, label, active: true });
-      writes.push({ key, value, id });
-      return id;
-    },
-    async QA(context, key, id) {
-      if (failRotate) throw new Error('rotate failed');
-      const items = stores[key] || [];
-      if (!items.some(item => item.id === id)) throw new Error('missing ID');
-      for (const item of items) item.active = item.id === id;
-      rotations.push({ key, id });
-    },
-    stores, writes, rotations, localStorage, existingStorage,
+    stores, writes, rotations, requests, localStorage, existingStorage,
     set failWrite(value) { failWrite = value; },
     set failRotate(value) { failRotate = value; },
   };
   return state;
 }
-function load(host) {
+function load(host, returnEnvironment = false) {
   const source = fs.readFileSync(sourcePath, 'utf8');
   const context = vm.createContext({
     ttHost: { crypto: webcrypto }, TextEncoder, localStorage: host.localStorage,
-    JA: host.JA, WA: host.WA, QA: host.QA,
+    fetch: host.fetch,
+    GA: class GA extends Error { constructor(message, stage) { super(message); this.stage = stage; } },
     HA: value => typeof value === 'string' ? value.normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim() : '',
-    ttWithConnectionValidationSuspended: async callback => callback(),
     console,
   });
   vm.runInContext(source, context, { filename: sourcePath });
   assert.equal(typeof context.ttRegisterSecret, 'function');
-  return context.ttRegisterSecret;
+  return returnEnvironment ? context : context.ttRegisterSecret;
 }
 const config = { name: 'example', groupName: 'site' };
 const context = {};
@@ -146,7 +154,7 @@ test('failed write does not replace the stored binding or key item ID', async ()
   const saved = host.localStorage.getItem(bindingKey);
   host.failWrite = true;
   const item = { key: 'new-key', secretId: 'untrusted-old-id' };
-  await assert.rejects(register(context, config, item, custom, item.key, true), /write failed/);
+  await assert.rejects(register(context, config, item, custom, item.key, true), /写入密钥失败（HTTP 503）/);
   assert.equal(item.secretId, 'untrusted-old-id');
   assert.equal(host.localStorage.getItem(bindingKey), saved);
 });
@@ -155,11 +163,11 @@ test('failed rotation does not replace the key item ID or its binding', async ()
   const host = createHost({ [custom]: [{ id: 'other', value: 'other', active: true }] });
   const register = load(host), item = { key: 'first' };
   await register(context, config, item, custom, item.key, true);
-  await host.QA(context, custom, 'other');
+  await host.fetch('/api/secrets/rotate', { method: 'POST', body: JSON.stringify({ key: custom, id: 'other' }) });
   const saved = host.localStorage.getItem(bindingKey);
   host.failRotate = true;
   const again = { key: 'first', secretId: 'untrusted' };
-  await assert.rejects(register(context, config, again, custom, again.key, true), /rotate failed/);
+  await assert.rejects(register(context, config, again, custom, again.key, true), /切换密钥失败（HTTP 503）/);
   assert.equal(again.secretId, 'untrusted');
   assert.equal(host.localStorage.getItem(bindingKey), saved);
 });
@@ -174,4 +182,37 @@ test('identical key text uses distinct bindings for different native secret type
   assert.equal(host.writes.length, 2);
   assert.equal(active(host, custom).value, 'same');
   assert.equal(active(host, otherType).value, 'same');
+});
+
+
+test('native secret HTTP transport sends the correct body and request headers', async () => {
+  const host = createHost({ [custom]: [{ id: 'previous', value: 'old', active: true }] });
+  const api = load(host, true);
+  const headers = { 'Content-Type': 'application/json', 'X-Test': 'request-header' };
+  const requestContext = { getRequestHeaders: () => headers };
+  const data = await api.JA(requestContext);
+  assert.equal(data[custom][0].id, 'previous');
+  const id = await api.WA(requestContext, custom, 'new-key', 'site label');
+  await api.QA(requestContext, custom, 'previous');
+  assert.equal(active(host).id, 'previous');
+  assert.equal(id, 'created-1');
+  assert.deepEqual(host.requests.map(request => request.url), ['/api/secrets/read', '/api/secrets/write', '/api/secrets/rotate']);
+  for (const { init } of host.requests) {
+    assert.equal(init.method, 'POST');
+    assert.equal(init.headers, headers);
+  }
+  assert.equal(host.requests[0].init.body, undefined);
+  assert.deepEqual(JSON.parse(host.requests[1].init.body), { key: custom, value: 'new-key', label: 'site label' });
+  assert.deepEqual(JSON.parse(host.requests[2].init.body), { key: custom, id: 'previous' });
+});
+
+test('transport reports operation and HTTP status on read, write and rotate failures', async () => {
+  const host = createHost();
+  const expected = [ ['JA', '读取密钥状态'], ['WA', '写入密钥'], ['QA', '切换密钥'] ];
+  for (const [name, description] of expected) {
+    const api = load({ ...host, fetch: async () => ({ ok: false, status: 401 }) }, true);
+    await assert.rejects(api[name](context, custom, 'key', 'label'), error => error.stage === 'write' && error.message === `${description}失败（HTTP 401）`);
+  }
+  const api = load({ ...host, fetch: async () => ({ ok: true, json: async () => ({}) }) }, true);
+  await assert.rejects(api.WA(context, custom, 'key', 'label'), /未返回密钥 ID/);
 });

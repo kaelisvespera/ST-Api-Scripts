@@ -15,6 +15,8 @@ module.exports = function patchApplyConfig(code) {
     code = code.slice(0, start) + body + code.slice(end);
   }
   section('function Mc(){', 'function Kc(', [
+    ["message:'应用完成'", "message:'配置已写入，连接状态以原生结果为准'"],
+    ['已应用配置: ${o.name}', '已写入配置: ${o.name}'],
     [
       "o.lastHealthStatus='unhealthy',o.lastHealthError=e,p(),sr().error(e)",
       'sr().error(e)',
