@@ -1,10 +1,10 @@
 {
   "type": "script",
   "enabled": true,
-  "name": "💡API管理器2.1.1-TT2.4.4",
+  "name": "💡API管理器2.1.1-TT2.4.5",
   "id": "d1c10d61-1360-4657-b816-7a64893eddc9",
-  "content": "import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@69474ab8f92007910942031da739c370fa612dfb/ST-ApiManager/index-2.1.1-tt2.4.js'",
-  "info": "TT 2.4 适配版：修复 iframe 重复初始化 TT 导致只读 SillyTavern 报错；包含密钥 ID 绑定、分组和应用超时修复。更新时替换旧脚本内容或停用旧版后导入。",
+  "content": "import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@973bc3cc211a85c76296c98cd52f4ee7d709be49/ST-ApiManager/index-2.1.1-tt2.4.js'",
+  "info": "TT 2.4 适配版：取消内部模块导入，密钥通过宿主 HTTP 桥同步后发起一次原生连接；成功提示仅表示配置写入。包含密钥绑定、分组及超时修复。更新后完全退出并重开 TT。",
   "button": {
     "enabled": false,
     "buttons": [
