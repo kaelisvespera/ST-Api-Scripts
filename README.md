@@ -1,24 +1,26 @@
 # ST-Api-Scripts
 
-酒馆助手 API 管理器 2.1.1 的 TauriTavern 2.4 适配版，当前版本 `2.1.1-tt2.4.3`。
+酒馆助手 API 管理器 2.1.1 的 TauriTavern 2.4 适配版，当前版本 `2.1.1-tt2.4.4`。
 
 ## 使用
 
-先停用旧版 API 管理器，再将 [导入文件](ST-ApiManager/酒馆助手脚本-API管理器2.1.1-TT2.4.3.json) 导入酒馆助手的脚本库并启用。也可以将原脚本的内容替换为：
+先停用旧版 API 管理器，再将 [导入文件](ST-ApiManager/酒馆助手脚本-API管理器2.1.1-TT2.4.4.json) 导入酒馆助手的脚本库并启用。也可以将原脚本的内容替换为：
 
 ```js
-import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@1f455936980c01f7be2dab4a398240a30221b061/ST-ApiManager/index-2.1.1-tt2.4.js'
+import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@69474ab8f92007910942031da739c370fa612dfb/ST-ApiManager/index-2.1.1-tt2.4.js'
 ```
 
 若 jsDelivr 无法访问，可尝试镜像（发布验证时该镜像返回 521）：
 
 ```js
-import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@1f455936980c01f7be2dab4a398240a30221b061/ST-ApiManager/index-2.1.1-tt2.4.js'
+import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@69474ab8f92007910942031da739c370fa612dfb/ST-ApiManager/index-2.1.1-tt2.4.js'
 ```
 
 需要 TauriTavern 2.4 和已启用的酒馆助手；这是酒馆助手脚本，不通过 TT 的原生扩展管理器安装。入口仍在 API 连接区和扩展菜单中，也保留脚本按钮及 `/st-api-manager` 命令。
 
 ## 修复
+
+- `TT2.4.4` 修复酒馆助手 iframe 中加载 TT 原生模块时重复执行宿主初始化、报 `Cannot set property SillyTavern ... which has only a getter` 的问题。设置、密钥和弹窗模块统一由宿主窗口的模块环境加载，共享已初始化的模块与密钥状态。
 
 - `TT2.4.3` 修复缓存的 `secretId` 与配置中的 Key 不一致时仍启用旧密钥的问题。TT 状态请求按原生 `secret_id` 选择密钥，仅填写设置对象中的 Key 无法替换它。现在按密钥内容的 SHA-256 指纹和原生密钥类型保存本机绑定，并核对 ID 仍存在；不把脱敏值或标签当作密钥原文。
 - 整套配置在 TT 原生 `withConnectionValidationSuspended` 作用域内应用，完成后仅显式连接一次；生成前注册轮换密钥也使用同一套绑定。首次遇到无法验证的旧 ID 时，会重新登记该 Key，后续切换和刷新复用已验证绑定。
@@ -46,7 +48,9 @@ node tools/build.cjs
 node --experimental-vm-modules --test tests/*.test.cjs
 ```
 
-58 项回归测试通过，覆盖旧密钥 ID 指向错误 Key、密钥被编辑或 ID 丢失、相同脱敏后缀、重复应用及刷新复用、轮换注册后恢复活跃密钥，以及原版超时复现、分组和存储迁移。配置应用集成测试同时运行真实的密钥同步及原生读写封装，核对最终连接的 URL、模型、secret_id 和密钥内容。浏览器模拟环境验证了抽屉从 DOM 移除且模型列表请求始终不返回时，仍能切换到指定模型并发起原生连接；也已验证初始化、添加 Key、模型拉取、保存和刷新恢复。尚未在用户的真实手机 TT 2.4 安装及付费 API 上实测。
+59 项回归测试通过，覆盖旧密钥 ID 指向错误 Key、密钥被编辑或 ID 丢失、相同脱敏后缀、重复应用及刷新复用、轮换注册后恢复活跃密钥，以及原版超时复现、分组和存储迁移。配置应用集成测试同时运行真实的密钥同步及原生读写封装，核对最终连接的 URL、模型、secret_id 和密钥内容。浏览器模拟环境验证了抽屉从 DOM 移除且模型列表请求始终不返回时，仍能切换到指定模型并发起原生连接；也已验证初始化、添加 Key、模型拉取、保存和刷新恢复。尚未在用户的真实手机 TT 2.4 安装及付费 API 上实测。
+
+另使用已安装的 Playwright 和 Edge 运行 `node --test tests/iframe-realm.browser.cjs`：真实父页面与 iframe 复现了旧导入方式的只读属性错误；修复后验证宿主模块仅初始化一次、密钥状态共享、暂停验证作用域及异常恢复，并覆盖酒馆助手对父窗口函数的绑定代理。此测试使用本地模拟页面，尚不等同于手机 TT 实机验证。
 
 “应用完成”表示连接设置已写入；服务商是否可用仍以原生连接状态或主动检测为准。`src/tt-secrets.js` 保存密钥绑定与注册逻辑，`src/tt-apply-settings.js` 保存本地配置写入逻辑，`tools/create-apply-patch.cjs` 修正应用及分类切换流程。
 
@@ -57,6 +61,7 @@ node --experimental-vm-modules --test tests/*.test.cjs
 - [原作者 samiytaa / ST-AllInOneFloatOrb](https://github.com/samiytaa/ST-AllInOneFloatOrb/blob/e5ecd8c91547b6a4cb12a59915350e6edc240f98/ST-ApiManager/index-2.1.1.js)
 - [TT 2.4 扩展存储 API](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/docs/API/Extension.md)
 - [TT 关闭设置抽屉时的 DOM 停车逻辑](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/tauri/main/adapters/panel-runtime/top-settings-panel-parking.js#L37)
+- [酒馆助手 iframe 的只读 SillyTavern 属性](https://github.com/N0VI028/JS-Slash-Runner/blob/e71c990607f6c92127151b1f8dad6c79fa03966e/src/iframe/predefine.js#L27)
 - [TT 原生暂停连接验证](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/script.js#L1365)
 - [TT 状态请求使用原生密钥 ID](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/scripts/openai.js#L6351)
 - [TT 的 generateRaw](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/script.js#L4891)
