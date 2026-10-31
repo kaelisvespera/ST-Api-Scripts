@@ -37,7 +37,12 @@ async function Ac(config, options = {}) {
     // The selected secret is already registered. A nonempty field would ask
     // TT's connect handler to save another new secret instead of reloading it.
     $(source.keyInputSelector).val('');
-    for (const selector of [source.modelInputSelector, ...(source.fallbackModelInputSelectors || [])].filter(Boolean)) {
+    const modelInputs = [source.modelInputSelector, source.modelListSelector,
+      ...(source.fallbackModelInputSelectors || []).filter(selector => selector === '#' + source.modelSettingKey)];
+    // TT's custom-model dropdown change handler captures its value before an
+    // await. Keep it in step with the text input before a source change can
+    // queue that handler with the previous model.
+    for (const selector of new Set(modelInputs.filter(Boolean))) {
       const input = $(selector);
       if (!input.length) continue;
       if (input[0]?.tagName === 'SELECT') {
@@ -45,7 +50,6 @@ async function Ac(config, options = {}) {
         if (!hasModel) input.append($('<option></option>').val(config.customModel).text(config.customModel));
       }
       input.val(config.customModel).trigger('change').trigger('input');
-      break;
     }
   }
   progress('写入酒馆配置');

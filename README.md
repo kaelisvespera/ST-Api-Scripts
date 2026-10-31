@@ -1,69 +1,70 @@
 # ST-Api-Scripts
 
-酒馆助手 API 管理器 2.1.1 的 TauriTavern 2.4 适配版，当前版本 `2.1.1-tt2.4.5`。
+基于 samiytaa 的 API 管理器 2.1.1，适配为 **SillyTavern / TauriTavern 2.4 原生前端扩展**。当前版本 `2.1.1-tt2.4.6`，无需酒馆助手。实现说明见 [架构与实现](docs/架构与实现.md)。
 
-## 使用
+本版已通过 76 项 Node 回归测试与 2 项 Edge 浏览器测试；手机端实际安装和服务商连接结果待用户验证。
 
-先停用旧版 API 管理器，再将 [导入文件](ST-ApiManager/酒馆助手脚本-API管理器2.1.1-TT2.4.5.json) 导入酒馆助手的脚本库并启用。也可以将原脚本的内容替换为：
+## 安装与升级
 
-```js
-import 'https://cdn.jsdelivr.net/gh/kaelisvespera/ST-Api-Scripts@973bc3cc211a85c76296c98cd52f4ee7d709be49/ST-ApiManager/index-2.1.1-tt2.4.js'
-```
+1. 先停用旧的 API 管理器酒馆助手脚本，保留原配置。
+2. 打开酒馆的扩展管理页，选择安装扩展，填入仓库地址：
 
-若 jsDelivr 无法访问，可尝试镜像（发布验证时该镜像返回 521）：
+   ```text
+   https://github.com/kaelisvespera/ST-Api-Scripts
+   ```
 
-```js
-import 'https://cdn.jsdmirror.com/gh/kaelisvespera/ST-Api-Scripts@973bc3cc211a85c76296c98cd52f4ee7d709be49/ST-ApiManager/index-2.1.1-tt2.4.js'
-```
+3. 安装后刷新页面；手机 TT 可完整退出后重新打开。
+4. 从 API 连接区或扩展菜单打开管理器，也可使用 `/st-api-manager` 命令。
 
-需要 TauriTavern 2.4 和已启用的酒馆助手；这是酒馆助手脚本，不通过 TT 的原生扩展管理器安装。入口仍在 API 连接区和扩展菜单中，也保留脚本按钮及 `/st-api-manager` 命令。
+TT 沿用旧脚本的 `st-api-manager/state` 存档，已有站点、模型、分组、多个 Key 和轮换位置会在原位置读取。升级时保留旧配置，避免同时启用旧脚本和原生扩展。
 
-## 修复
+根目录的 `manifest.json`、`index.js` 和 `vendor/` 是原生安装所需文件。`ST-ApiManager/` 下的五个 JSON 仍固定到 TT2.4.5 的历史脚本提交，保留用于兼容记录；新安装使用上面的仓库地址。
 
-- `TT2.4.5` 取消对 TT 内部模块的动态导入和宿主 Function 导入器。密钥读写、激活改为宿主 fetch 的 `/api/secrets/read`、`write`、`rotate`；弹窗仅使用已经初始化的公开 context。避免在脚本 iframe 或另一份模块图中启动 TT。此前的宿主模块导入方案未能解决手机上的初始化错误，因此已替换。
+## 功能与本次改动
 
-- `TT2.4.3` 修复缓存的 `secretId` 与配置中的 Key 不一致时仍启用旧密钥的问题。TT 状态请求按原生 `secret_id` 选择密钥，仅填写设置对象中的 Key 无法替换它。现在按密钥内容的 SHA-256 指纹和原生密钥类型保存本机绑定，并核对 ID 仍存在；不把脱敏值或标签当作密钥原文。
-- 同步密钥时不触发 DOM 连接事件；URL、来源、模型和密钥完整写入后，只发起一次原生连接。TT 的原生连接函数先刷新密钥状态，再构造状态请求。首次遇到无法验证的旧 ID 时，会重新登记该 Key，后续切换和刷新复用已验证绑定。
+- 保留原管理器的站点及模型管理、分组、多 Key、生成前轮换、检测、测试消息和账户同步。
+- 原生扩展直接使用宿主公开 context 和事件总线，本地加载 Vue 3.5.22 与 Zod 3.23.8，无需酒馆助手注入变量，也不复制整页宿主样式。
+- 应用配置时先同步密钥，再写入来源、端点和模型，最后发起一次原生连接；关闭设置抽屉、模型列表为空或模型接口无响应时仍可应用已保存的配置。
+- 同步自定义模型输入框与下拉选择，修复下拉框异步处理把新模型改回旧模型的问题；非自定义来源不会写入其他来源的模型控件。
+- 密钥按内容指纹与原生类型绑定 `secret_id`，核对缓存 ID 是否仍存在。普通 ST 在密钥写入或激活后刷新宿主密钥状态；TT 使用现有 HTTP 桥和原生连接流程。
+- 测试消息通过宿主生成接口使用所选来源、模型、端点和 `secret_id`；已有活跃密钥会在登记测试 Key 后恢复。生成前轮换通过公开 `CHAT_COMPLETION_SETTINGS_READY` 事件写入本次请求的 ID。
+- 同站点添加模型时保留旧模型及其各自分组，新模型进入未分类；编辑表单仍允许主动取消模型。
 
-- `TT2.4.2` 修复关闭“AI 响应设置”抽屉时的应用超时；该抽屉中的 `#openai_settings` 会被 TT 的 Panel Runtime 移出 DOM，应用连接配置无需等待它。
-- 应用及分类切换只写入已保存的连接配置并发起原生连接，不再强制先拉模型列表；“检测”和“发送测试消息”保留网络验证。应用成功不会虚报健康检测成功，也不会改变当前 Key 索引。
-- 密钥先完成本地同步，再同步来源并发起一次原生连接。原生 Key 输入框保持空白，避免原生连接再次保存同一密钥；具体的本地错误会原样显示。
-- 测试消息调用酒馆助手的 `generateRaw`，使指定的 URL、Key、模型和来源生效。
-- 弹窗和密钥模块从 TT 宿主加载，避免根路径被解析到 CDN。
-- 请求通过宿主的 fetch 桥发送，模型状态请求明确使用 OpenAI 兼容格式。
-- 配置使用 TT 扩展存储。首次读取无存档时迁移旧浏览器配置，保留旧数据；读取失败时停止加载，避免覆盖存量。
-- 同站点新增模型时，旧模型分别保留原分组，新模型进入“未分类”。保留多标签和显式批量分组操作。
-- 同站点通过“添加配置”增加模型时，保留此前已有、未在新增表单勾选的模型。通过编辑表单主动取消勾选，仍可移除模型。
+主要已接入来源为自定义 OpenAI 兼容端点、OpenAI、DeepSeek 和 Google AI Studio。TT 2.4 未实现的 SubModel 暂不支持。
 
-配置与 Key 在 TT 本地保存，仓库内不包含个人配置。扩展存档位置为 `data_root/_tauritavern/extension-store/st-api-manager/kv/main/state.json`。保存通过异步队列完成，写入失败会弹出提示；页面卸载无法保证尚未完成的写入结束。原有“账户同步”及其冲突界面保留，语义不变。
+## 数据保存
 
-上游已接入的主要来源为自定义 OpenAI 兼容端点、OpenAI、DeepSeek 和 Google AI Studio。TT 2.4 未实现的 SubModel 不在本次支持范围内；上游下拉菜单中其余未接入来源保持原有提示。
+TT 使用 `extension.store`，存档位于 `data_root/_tauritavern/extension-store/st-api-manager/kv/main/state.json`。普通 ST 使用 `SillyTavern.getContext().extensionSettings['st-api-manager']` 并调用 `saveSettingsDebounced()` 保存。首次没有扩展存档时读取已知的旧浏览器配置键，保留浏览器原值；TT 存档读取失败会停止初始化。
 
-## 验证与构建
+配置包含 Key，保存在用户的酒馆数据中。账户同步功能保留原有语义；仓库不包含个人配置。TT 写入通过异步队列完成，退出前仍在等待的写入应先完成；普通 ST 的实际落盘由宿主设置保存流程处理。
 
-仅需 Node.js，无需安装项目依赖：
+“已写入配置”表示本地连接设置已保存；服务商是否可用，以原生连接状态、检测或测试消息结果为准。
+
+## 构建与验证
+
+构建及 Node 回归测试只需 Node.js：
 
 ```sh
 node tools/build.cjs
 node --experimental-vm-modules --test tests/*.test.cjs
 ```
 
-63 项回归测试通过，覆盖旧密钥 ID 指向错误 Key、密钥被编辑或 ID 丢失、相同脱敏后缀、重复应用及刷新复用、轮换注册后恢复活跃密钥，以及原版超时复现、分组和存储迁移。配置应用集成测试读取最终构建，并运行 TT 2.4 原版 `onConnectButtonClick` 和 `getStatusOpen` 函数，验证 A→B→A 切换时每次只有一个状态请求，且原生刷新后的 `secret_id`、URL、模型及对应密钥一致。原生函数测试引用保留来源与 AGPL v3 许可证，见 `tests/fixtures/`。浏览器模拟环境验证了抽屉从 DOM 移除且模型列表请求始终不返回时，仍能切换到指定模型并发起原生连接；也已验证初始化、添加 Key、模型拉取、保存和刷新恢复。尚未在用户的真实手机 TT 2.4 安装及付费 API 上实测。
+构建同时生成根目录原生扩展 `index.js` 和 `ST-ApiManager/index-2.1.1-tt2.4.js` 兼容脚本。前者使用本地 `vendor/`，历史 JSON 中固定的提交保持不变。
 
-另使用已安装的 Playwright 和 Edge 运行 `node --test tests/iframe-realm.browser.cjs`：真实父页面与 iframe 复现了旧导入方式的只读属性错误；修复后普通窗口和代理窗口均能经宿主 HTTP 桥读写并激活密钥，验证未请求 TT 原生模块或访问 Function 导入器，并覆盖酒馆助手的父窗口代理。此测试使用本地模拟页面，尚不等同于手机 TT 实机验证。
+76 项 Node 回归测试和 2 项 Edge 浏览器测试通过。测试覆盖存储、分组、密钥绑定、应用顺序、原生请求和原生扩展适配。真实 Edge 已运行完整原生 bundle，验证菜单打开、配置应用、测试消息、轮换与 TT 数据读取；旧 iframe 兼容测试也已通过。浏览器测试使用本地宿主及 API fixture，手机 TT 和真实服务商连接仍待实测。
 
-界面“已写入配置”表示连接设置已保存；服务商是否可用仍以原生连接状态或主动检测为准。`src/tt-secrets.js` 保存密钥绑定与注册逻辑，`src/tt-apply-settings.js` 保存本地配置写入逻辑，`tools/create-apply-patch.cjs` 修正应用及分类切换流程。
+在已安装 Playwright 与 Edge 的环境中，可继续运行：
 
-`src/upstream-index-2.1.1.js` 保留作者发布的原始构建；`src/tt-bootstrap.js` 和 `tools/grouping-patch.cjs` 保存适配代码，构建时生成可远程 import 的单文件。
+```sh
+node --test tests/native-extension.browser.cjs tests/iframe-realm.browser.cjs
+```
 
-## 来源
+## 来源与许可证
 
 - [原作者 samiytaa / ST-AllInOneFloatOrb](https://github.com/samiytaa/ST-AllInOneFloatOrb/blob/e5ecd8c91547b6a4cb12a59915350e6edc240f98/ST-ApiManager/index-2.1.1.js)
+- [SillyTavern 原生前端扩展文档](https://docs.sillytavern.app/for-contributors/writing-extensions/)
 - [TT 2.4 扩展存储 API](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/docs/API/Extension.md)
-- [TT 关闭设置抽屉时的 DOM 停车逻辑](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/tauri/main/adapters/panel-runtime/top-settings-panel-parking.js#L37)
-- [酒馆助手 iframe 的只读 SillyTavern 属性](https://github.com/N0VI028/JS-Slash-Runner/blob/e71c990607f6c92127151b1f8dad6c79fa03966e/src/iframe/predefine.js#L27)
-- [TT 状态请求使用原生密钥 ID](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/scripts/openai.js#L6351)
-- [TT 的 generateRaw](https://github.com/Darkatse/TauriTavern/blob/v2.4.0/src/script.js#L4891)
-- [酒馆助手 GenerateRawConfig](https://github.com/N0VI028/JS-Slash-Runner/blob/e71c990607f6c92127151b1f8dad6c79fa03966e/src/function/generate/types.ts#L130)
+- Vue 3.5.22 与 Zod 3.23.8 的 MIT 许可证分别保存在 [Vue-LICENSE](vendor/Vue-LICENSE)、[Zod-LICENSE](vendor/Zod-LICENSE)。
+- 上游原始构建和 TT 原版函数测试引用保留各自版权与许可证，见 `src/upstream-index-2.1.1.js`、`tests/fixtures/`。
 
-保留上游文件中的版权与许可证标记；本仓库为适配版本，不代表原作者发布。
+本仓库为适配版本，不代表原作者发布。

@@ -23,13 +23,15 @@ function createApp() {
   const requests = [], secretReads = [], errors = [], pending = [];
   const settings = { chat_completion_source: 'custom', custom_url: 'https://old.invalid/v1',
     custom_model: 'old-model', custom_api_format: 'claude_messages', reverse_proxy: '', proxy_password: '' };
+  const modelDropdown = { value: settings.custom_model, tagName: 'SELECT', options: [{ value: settings.custom_model }] };
   const nodes = new Map([
     ['#main_api', { value: 'openai' }],
     ['#chat_completion_source', { value: 'custom' }],
     ['#custom_api_url_text', { value: settings.custom_url }],
     ['#custom_model_id', { value: settings.custom_model, tagName: 'INPUT' }],
     ['#api_key_custom', { value: 'unfinished-native-input' }],
-    ['.model_custom_select', { value: '', options: [] }],
+    ['#model_custom_select', modelDropdown],
+    ['.model_custom_select', modelDropdown],
   ]);
   let sequence = 0;
   let environment;
@@ -84,13 +86,21 @@ function createApp() {
       find() { return { toArray: () => node?.options || [] }; },
       append(option) { node.options.push({ value: option.val() }); return this; },
       trigger(event) {
-        // Match TT's synchronous source-change work and its asynchronous native
-        // connect. The writer must repair the model before readSecretState yields.
+        // TT's source change queues both its async model change and native
+        // connect. The dropdown value is captured before the model handler yields.
         if (selector === '#chat_completion_source' && event === 'change') {
           settings.chat_completion_source = node.value;
-          settings.custom_model = '';
-          nodes.get('#custom_model_id').value = '';
+          $('#model_custom_select').trigger('change');
           connect();
+        }
+        if (selector === '#model_custom_select' && event === 'change') {
+          const selectedModel = node.value;
+          pending.push(Promise.resolve().then(() => {
+            if (selectedModel) {
+              settings.custom_model = selectedModel;
+              $('#custom_model_id').val(selectedModel).trigger('input');
+            }
+          }));
         }
         if (selector === '#custom_api_url_text' && event === 'input') settings.custom_url = node.value;
         if (selector === '#custom_model_id' && (event === 'input' || event === 'change')) settings.custom_model = node.value;
@@ -119,7 +129,7 @@ function createApp() {
     HA: value => value.trim(),
     er: () => ({ secretKey: 'api_key_custom', requiresCustomUrl: true,
       keyInputSelector: '#api_key_custom', modelSettingKey: 'custom_model',
-      stateModelKeys: ['custom_model'], modelInputSelector: '#custom_model_id' }),
+      stateModelKeys: ['custom_model'], modelInputSelector: '#custom_model_id', modelListSelector: '#model_custom_select' }),
     getRequestHeaders: context.getRequestHeaders,
     async readSecretState() {
       const result = await fetch('/api/secrets/read');
@@ -171,6 +181,7 @@ test('real TT connect refreshes native secrets before building each cross-site s
     assert.equal(request.token, keyItem.key, 'resolve the exact secret_id sent by real getStatusOpen');
     assert.equal(request.model, config(site).customModel);
     assert.equal(request.fieldModel, config(site).customModel);
+    assert.equal(app.nodes.get('#model_custom_select').value, config(site).customModel);
     assert.ok(app.secretReads.at(-1) < request.sequence);
     assert.equal(app.nodes.get('#api_key_custom').value, '');
   }

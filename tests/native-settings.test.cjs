@@ -5,22 +5,24 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
 const secretCode = fs.readFileSync(path.join(__dirname, '../src/tt-secrets.js'), 'utf8');
-const bundle = fs.readFileSync(path.join(__dirname, '../ST-ApiManager/index-2.1.1-tt2.4.js'), 'utf8');
-const writer = bundle.slice(bundle.indexOf('async function Ac('), bundle.indexOf('function cc(', bundle.indexOf('async function Ac(')));
+const writer = fs.readFileSync(path.join(__dirname, '../src/tt-apply-settings.js'), 'utf8');
 const original = fs.readFileSync(path.join(__dirname, '../src/upstream-index-2.1.1.js'), 'utf8');
 const oldWriter = original.slice(original.indexOf('async function Ac('), original.indexOf('function cc(', original.indexOf('async function Ac(')));
 const config = { source: 'custom', customUrl: 'https://example.invalid/v1', customModel: 'saved-model', name: 'saved config' };
 function app(options = {}, code = writer) {
   const nodes = new Map();
-  const settings = { custom_model_list: [], custom_api_format: 'anthropic' };
-  const events = [], saves = [], warnings = [], secrets = [], connects = [];
+  const settings = { custom_model_list: [], custom_api_format: 'anthropic', ...options.initialSettings };
+  const events = [], saves = [], warnings = [], secrets = [], connects = [], modelChanges = [];
   const nativeSecrets = options.nativeSecrets || [];
   const storage = new Map();
   const activeToken = () => nativeSecrets.find(secret => secret.active)?.plaintext;
   if (!options.noMain) nodes.set('#main_api', { value: options.main || 'openai' });
   if (options.sourceControl) nodes.set('#chat_completion_source', { value: 'old-source' });
   nodes.set('#api_key_custom', { value: 'old-unsaved-key' });
-  if (options.modelControl) nodes.set('#custom_model_id', { value: '', tagName: options.modelControl, options: [] });
+  if (options.modelControl) nodes.set('#custom_model_id', { value: settings.custom_model || '', tagName: options.modelControl, options: [] });
+  if (options.asyncModelDropdown) nodes.set('#model_custom_select', {
+    value: 'previous-model', tagName: 'SELECT', options: [{ value: 'previous-model' }],
+  });
   if (!options.noButton) nodes.set('#api_button_openai', { disabled: !!options.disabled, async click() { await Promise.resolve(); connects.push({ ...settings, ...(options.realSecrets ? { token: activeToken(), secret_id: nativeSecrets.find(secret => secret.active)?.id } : {}) }); } });
   function $(selector) {
     const node = typeof selector === 'object' ? selector : nodes.get(selector);
@@ -33,8 +35,21 @@ function app(options = {}, code = writer) {
         if (selector === '#chat_completion_source' && event === 'change') {
           if (options.sourceReset) settings.custom_model = '';
           if (options.sourceDenied) node.value = 'openai';
+          if (options.asyncModelDropdown) $('#model_custom_select').trigger('change');
           nodes.get('#api_button_openai')?.click();
         }
+        if (selector === '#model_custom_select' && event === 'change' && options.asyncModelDropdown) {
+          // TT captures the dropdown selection before awaiting its custom-model
+          // action handler, then applies that captured model to the text field.
+          const selectedModel = node.value;
+          modelChanges.push(Promise.resolve().then(() => {
+            if (selectedModel) {
+              settings.custom_model = selectedModel;
+              nodes.get('#custom_model_id').value = selectedModel;
+            }
+          }));
+        }
+        if (selector === '#custom_model_id' && event === 'input') settings.custom_model = node.value;
         return this;
       },
       first() { return this; }, prop(name) { return node?.[name]; },
@@ -54,7 +69,7 @@ function app(options = {}, code = writer) {
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     Date: { now: () => clock += 100000 }, setTimeout: callback => callback(),
     console: { warn() {}, log() {} }, GA,
-    er: () => ({ requiresCustomUrl: true, secretKey: 'api_key_custom', keyInputSelector: '#api_key_custom', modelSettingKey: 'custom_model', stateModelKeys: ['custom_model'], modelInputSelector: '#custom_model_id' }),
+    er: name => options.sources?.[name] || ({ requiresCustomUrl: true, secretKey: 'api_key_custom', keyInputSelector: '#api_key_custom', modelSettingKey: 'custom_model', stateModelKeys: ['custom_model'], modelInputSelector: '#custom_model_id', modelListSelector: '#model_custom_select' }),
     HA: value => value.trim(), sc: value => value?.trim().toLowerCase() || '', qA() {},
     PA: ['#main_api'], $A: ['#chat_completion_source'], jA: ['#custom_api_url_text'],
     oc($, selectors, value) {
@@ -93,7 +108,7 @@ function app(options = {}, code = writer) {
   });
   if (options.realSecrets) vm.runInContext(secretCode, environment);
   vm.runInContext(code, environment);
-  return { apply: environment.Ac, nodes, settings, events, saves, warnings, secrets, connects };
+  return { apply: environment.Ac, nodes, settings, events, saves, warnings, secrets, connects, modelChanges };
 }
 test('reproduces old wait on parked AI settings drawer', async () => {
   const old = app({}, oldWriter);
@@ -121,6 +136,34 @@ test('native change handlers see complete fields and cannot erase the final sele
   assert.equal(instance.nodes.get('#custom_model_id').value, config.customModel);
   assert.equal(instance.connects.length, 1);
   assert.equal(instance.nodes.get('#api_key_custom').value, '');
+});
+
+test('one application synchronizes the custom model dropdown before its asynchronous change handler runs', async () => {
+  const instance = app({ sourceControl: true, modelControl: 'INPUT', asyncModelDropdown: true });
+  await instance.apply(config, { apiKey: 'fake-key' });
+  await Promise.all(instance.modelChanges);
+  assert.equal(instance.settings.custom_model, config.customModel);
+  assert.equal(instance.nodes.get('#custom_model_id').value, config.customModel);
+  assert.equal(instance.nodes.get('#model_custom_select').value, config.customModel);
+  assert.ok(instance.nodes.get('#model_custom_select').options.some(option => option.value === config.customModel));
+  assert.equal(instance.connects.length, 1);
+  assert.equal(instance.connects[0].custom_model, config.customModel);
+});
+
+test('missing provider controls preserve other source models while accepting the same-source alias', async () => {
+  const deepseek = { requiresCustomUrl: false, keyInputSelector: '#api_key_deepseek',
+    modelSettingKey: 'deepseek_model', stateModelKeys: ['deepseek_model', 'custom_model'],
+    modelInputSelector: '#model_deepseek_select', modelListSelector: '#model_deepseek_select',
+    fallbackModelInputSelectors: ['#model_deepseek_select', '#deepseek_model', '#model_openai_select', '#custom_model_id'] };
+  for (const alias of [false, true]) {
+    const instance = app({ modelControl: 'INPUT', initialSettings: { custom_model: 'keep-custom' }, sources: { deepseek } });
+    if (alias) instance.nodes.set('#deepseek_model', { value: 'old-deepseek', tagName: 'INPUT' });
+    await instance.apply({ ...config, source: 'deepseek', customModel: 'selected-deepseek' });
+    assert.equal(instance.settings.deepseek_model, 'selected-deepseek');
+    assert.equal(instance.settings.custom_model, 'keep-custom');
+    assert.equal(instance.nodes.get('#custom_model_id').value, 'keep-custom');
+    if (alias) assert.equal(instance.nodes.get('#deepseek_model').value, 'selected-deepseek');
+  }
 });
 test('no native reconnect starts before the selected secret is activated', async () => {
   let activate;
