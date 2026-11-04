@@ -466,11 +466,11 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 :where(.st-api-manager) .secretKeyManagerItem { border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 18%, transparent) !important;   padding: 5px 10px 5px 12px;   border-radius: 10px;   background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 92%, var(--SmartThemeBodyColor)) !important;   color: var(--SmartThemeBodyColor) !important;   display: flex;   flex-direction: row;   align-items: center;   position: relative;   overflow: hidden;   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
 :where(.st-api-manager) .secretKeyManagerItem--selected { border-color: color-mix(in srgb, var(--SmartThemeQuoteColor) 42%, transparent) !important;   background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 86%, var(--SmartThemeQuoteColor)) !important;   color: var(--SmartThemeBodyColor) !important; }
 .st-api-manager .catalog-config-card {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 6px 8px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-items: stretch; padding: 8px 10px;
 }
 .st-api-manager .catalog-card-title {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  grid-column: 1 / -1; min-width: 0; min-height: 32px; padding: 3px 2px; margin: 0;
+  min-width: 0; min-height: 32px; padding: 3px 2px; margin: 0;
   border: 0; background: transparent; color: inherit;
   font: inherit; font-weight: 600; line-height: 1.25; text-align: start; cursor: pointer;
 }
@@ -499,36 +499,40 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-meta-note { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
 .st-api-manager .catalog-meta-note > i { flex: 0 0 auto; opacity: .72; }
 .st-api-manager .catalog-card-alias { color: var(--st-orb-primary); }
-.st-api-manager .catalog-config-card .catalog-meta-note,
-.st-api-manager .catalog-config-card .catalog-card-alias { max-inline-size: min(100%, 18ch); }
-.st-api-manager .catalog-card-actions { display: flex; gap: 5px; align-self: end; }
-.st-api-manager .catalog-card-actions > button {
-  width: auto; min-width: 40px; min-height: 40px; padding: 4px 8px; margin: 0; white-space: nowrap;
+.st-api-manager .catalog-config-card .catalog-card-site,
+.st-api-manager .catalog-config-card .catalog-card-alias {
+  overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.st-api-manager .catalog-card-actions > button:first-child {
+.st-api-manager .catalog-card-notes {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px;
+  margin: 0; padding-inline: 2px; font-size: inherit; line-height: 1.35;
+}
+.st-api-manager .catalog-card-notes dt { color: color-mix(in srgb, currentColor 76%, transparent); }
+.st-api-manager .catalog-card-notes dd {
+  min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.st-api-manager .catalog-card-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 2px; padding-top: 7px; border-top: 1px solid var(--st-orb-border-soft);
+}
+.st-api-manager .catalog-card-secondary-actions { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
+.st-api-manager .catalog-card-actions button {
+  flex: 0 0 auto; width: auto; min-width: 44px; min-height: 40px;
+  padding: 4px 8px; margin: 0; white-space: nowrap;
+}
+.st-api-manager .catalog-card-actions button:focus-visible {
+  outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px;
+}
+.st-api-manager .catalog-card-actions > .catalog-card-apply {
   border-color: color-mix(in srgb, var(--SmartThemeQuoteColor) 48%, var(--SmartThemeBorderColor));
   background: color-mix(in srgb, var(--SmartThemeQuoteColor) 10%, var(--SmartThemeBlurTintColor));
 }
-.st-api-manager .catalog-card-actions > button:last-child { font-size: 1.18em; }
+.st-api-manager .catalog-card-actions .catalog-delete-action { color: var(--st-orb-danger); }
 .st-api-manager .catalog-selection-model,
-.st-api-manager .catalog-action-target,
 .st-api-manager .catalog-details dd { overflow-wrap: anywhere; }
 .st-api-manager .catalog-details { display: grid; gap: 4px; margin: 0; }
 .st-api-manager .catalog-details dt { font-weight: 600; }
 .st-api-manager .catalog-details dd { margin: 0 0 8px; white-space: pre-wrap; }
-.st-api-manager .catalog-action-target {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  overflow: hidden; margin: 0 0 8px; font-size: var(--st-orb-font-sm);
-}
-.st-api-manager .catalog-more-actions { display: grid; gap: 6px; }
-.st-api-manager .catalog-more-actions > button {
-  justify-content: flex-start; width: 100%; min-height: 40px; margin: 0; padding: 5px 10px; text-align: start;
-}
-.st-api-manager .catalog-more-actions .catalog-delete-action { color: var(--st-orb-danger); }
-@media (max-width: 480px) {
-  .st-api-manager .catalog-config-card .catalog-meta-note,
-  .st-api-manager .catalog-config-card .catalog-card-alias { max-inline-size: min(100%, 12ch); }
-}
 @media (min-width: 800px) {
   .st-api-manager .catalog-config-card { padding-inline: 12px; }
   .st-api-manager .catalog-card-meta { column-gap: 10px; }

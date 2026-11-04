@@ -6,9 +6,7 @@ test('complete compatibility bundle manages entries from a proxied TT helper ifr
   await open('?iframe=1');
   const panel = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
   assert.equal(await panel.locator('.secretKeyManagerItem').count(), 2);
-  await panel.getByRole('button', { name: '更多操作', exact: true }).nth(1).click();
-  const actions = tab.getByRole('dialog', { name: '更多操作', exact: true });
-  await actions.getByRole('button', { name: '编辑', exact: true }).click();
+  await panel.getByRole('button', { name: '编辑', exact: true }).nth(1).click();
   const editor = tab.getByRole('dialog', { name: '编辑 API 配置', exact: true });
   await editor.getByRole('button', { name: '拉取模型', exact: true }).click();
   await editor.getByRole('checkbox', { name: 'available-for-b', exact: true }).waitFor();

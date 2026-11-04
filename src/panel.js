@@ -114,67 +114,79 @@ function mountCatalogPanel(host, storage, connection) {
     return save(pane, catalog => ({ ...catalog, entries: catalog.entries.filter(row => !ids.has(row.id)) }),
       '已删除配置。', done);
   }
-  function rowMetadata(row, { keyLabel, keyNote, alias }) {
+  function rowMetadata(row, { keyLabel, keyNote, alias }, compactNotes = true) {
     const meta = make('span', 'catalog-card-meta');
     meta.append(make('span', 'catalog-card-site', row.site));
     if (keyLabel) meta.append(make('span', 'catalog-key-label', keyLabel));
-    for (const [value, glyph] of [[keyNote, 'key'], [row.modelNote, 'comment']]) {
-      if (!value) continue;
-      const note = make('span', 'catalog-meta-note');
-      note.append(icon(glyph), make('span', '', value));
-      meta.append(note);
+    if (compactNotes) {
+      for (const [value, glyph] of [[keyNote, 'key'], [row.modelNote, 'comment']]) {
+        if (!value) continue;
+        const note = make('span', 'catalog-meta-note');
+        note.append(icon(glyph), make('span', '', value));
+        meta.append(note);
+      }
     }
     if (alias) meta.append(make('span', 'catalog-card-alias', alias));
     return meta;
   }
-  function showRowDetails(row, { keyLabel, keyNote }) {
-    const pane = popup('配置详情', 'small');
-    const fields = make('dl', 'catalog-details');
-    for (const [label, value] of [
-      ['模型 ID', row.model || '未选择模型'], ['配置组', row.site], ['密钥编号', keyLabel],
-      ['密钥备注', keyNote], ['模型备注', row.modelNote], ['原条目标题', row.name],
-    ]) {
+  function rowFields(className, entries) {
+    const fields = make('dl', className);
+    for (const [label, value] of entries) {
       if (value) fields.append(make('dt', '', label), make('dd', '', value));
     }
-    pane.scroll.append(fields);
+    return fields;
+  }
+  function showRowDetails(row, { keyLabel, keyNote }) {
+    const pane = popup('配置详情', 'small');
+    pane.scroll.append(rowFields('catalog-details', [
+      ['模型 ID', row.model || '未选择模型'], ['配置组', row.site], ['密钥编号', keyLabel],
+      ['密钥备注', keyNote], ['模型备注', row.modelNote], ['原条目标题', row.name],
+    ]));
     pane.footer.append(closeButton(pane));
     pane.open();
   }
-  function focusRowAction(row, group, selector = '.catalog-card-more') {
+  function focusRowAction(row, group, selector = '.catalog-card-edit') {
     const cards = [...main.scroll.querySelectorAll('.catalog-config-card')].filter(card =>
       card.dataset.entryId === row.id && card.getClientRects().length);
     const card = cards.find(card => card.dataset.groupId === (group?.id ?? '')) ?? cards[0];
     (card?.querySelector(selector) ?? main.heading.querySelector('button'))?.focus();
   }
-  function showRowActions(row, group) {
-    const pane = popup('更多操作', 'small');
-    const actions = make('div', 'catalog-more-actions');
-    function action(label, invoke, glyph) {
-      const control = button(label, () => { pane.dialog.close(); invoke(); }, glyph);
-      actions.append(control);
-      return control;
-    }
-    const restore = () => focusRowAction(row, group);
-    action('编辑', () => edit([row], restore), 'pen-to-square');
-    action('管理分组', () => rowGroups(row, restore), 'tag');
-    if (group) action('移出标签分组', () => {
-      save(main, catalog => ({
-        ...catalog, entries: catalog.entries.map(entry => entry.id === row.id
-          ? { ...entry, groupIds: entry.groupIds.filter(id => id !== group.id) } : entry),
-      }), '已移出标签分组。', () => { refresh(); restore(); });
-    }, 'xmark');
-    action('删除', () => deleteRows(main, [row], '删除这一条配置？', () => { refresh(); restore(); }), 'trash')
-      .classList.add('catalog-delete-action');
-    pane.scroll.append(make('p', 'catalog-action-target', rowTitle(row)), actions);
-    pane.footer.append(closeButton(pane));
-    pane.dialog.addEventListener('click', event => {
-      if (event.target !== pane.dialog) return;
-      const { left, right, top, bottom } = pane.dialog.getBoundingClientRect();
-      if (event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom) {
-        pane.dialog.close();
-      }
+  function rowActions(row, group) {
+    const actions = make('div', 'catalog-card-actions');
+    const refreshAndFocus = selector => {
+      refresh();
+      focusRowAction(row, group, selector);
+    };
+    const apply = button('应用', () => run(main, () => connection.apply(row), undefined, () =>
+      refreshAndFocus('.catalog-card-apply')));
+    apply.classList.add('catalog-card-apply');
+    const editButton = button('编辑', event => {
+      event.currentTarget.focus({ preventScroll: true });
+      edit([row], () => focusRowAction(row, group));
     });
-    pane.open();
+    editButton.classList.add('catalog-card-edit');
+    const groups = button('管理分组', event => {
+      event.currentTarget.focus({ preventScroll: true });
+      rowGroups(row, () => focusRowAction(row, group, '.catalog-card-groups'));
+    });
+    groups.classList.add('catalog-card-groups');
+    actions.append(apply, editButton, groups);
+    const secondary = make('div', 'catalog-card-secondary-actions');
+    if (group) {
+      const remove = button('移出分组', () => {
+        save(main, catalog => ({
+          ...catalog, entries: catalog.entries.map(entry => entry.id === row.id
+            ? { ...entry, groupIds: entry.groupIds.filter(id => id !== group.id) } : entry),
+        }), '已移出标签分组。', () => refreshAndFocus());
+      });
+      remove.setAttribute('aria-label', '移出当前分组');
+      secondary.append(remove);
+    }
+    const remove = button('删除', () => deleteRows(main, [row], '删除这一条配置？', () => refreshAndFocus()));
+    remove.classList.add('catalog-delete-action');
+    secondary.append(remove);
+    actions.append(secondary);
+    return actions;
   }
   function rowNode(row, group, presentation) {
     const card = make('div', 'secretKeyManagerItem catalog-config-card');
@@ -188,26 +200,15 @@ function mountCatalogPanel(host, storage, connection) {
       title.focus({ preventScroll: true });
       showRowDetails(row, presentation);
     });
-    const meta = rowMetadata(row, presentation);
+    const meta = rowMetadata(row, presentation, false);
     if (connection.activeRowId() === row.id) {
       card.classList.add('secretKeyManagerItem--applied');
       meta.append(make('span', 'active-badge-sm', '已应用'));
     }
-    const actions = make('div', 'catalog-card-actions');
-    const more = button('⋯', () => {
-      more.focus({ preventScroll: true });
-      showRowActions(row, group);
-    });
-    more.classList.add('catalog-card-more');
-    more.setAttribute('aria-label', '更多操作');
-    more.setAttribute('aria-haspopup', 'dialog');
-    const apply = button('应用', () => run(main, () => connection.apply(row), undefined, () => {
-      refresh();
-      focusRowAction(row, group, '.catalog-card-apply');
-    }));
-    apply.classList.add('catalog-card-apply');
-    actions.append(apply, more);
-    card.append(title, meta, actions);
+    card.append(title, meta);
+    const notes = rowFields('catalog-card-notes', [['密钥备注', presentation.keyNote], ['模型备注', row.modelNote]]);
+    if (notes.childElementCount) card.append(notes);
+    card.append(rowActions(row, group));
     return card;
   }
   function rowPresentations(availableSites) {
