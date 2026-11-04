@@ -62,14 +62,16 @@ function mountCatalogPanel(host, storage, connection) {
     const controls = [...pane.dialog.querySelectorAll('button,input,select,textarea')].filter(item => !item.disabled);
     for (const control of controls) control.disabled = true;
     try {
-      const result = await action();
-      pane.status.textContent = success ?? result ?? '';
+      try {
+        const result = await action();
+        pane.status.textContent = success ?? result ?? '';
+      } finally {
+        for (const control of controls) control.disabled = false;
+        busy = false;
+      }
       done?.();
     } catch (error) {
       pane.status.textContent = error.message || '操作失败，原有配置已保留。';
-    } finally {
-      for (const control of controls) control.disabled = false;
-      busy = false;
     }
   }
   const main = popup('API 管理器', 'large', true);
@@ -80,6 +82,15 @@ function mountCatalogPanel(host, storage, connection) {
   const categoryFilter = new Set();
   const siteFilter = new Set();
   const collapsed = new Set();
+  const toolbar = make('div', 'api-manager-toolbar');
+  const filter = button('筛选', filters, 'filter');
+  filter.setAttribute('aria-label', '筛选');
+  const filterBadge = make('span', 'filter-badge');
+  filterBadge.hidden = true;
+  filter.append(filterBadge);
+  toolbar.append(button('API 管理', manager, 'layer-group'), button('标签设置', tagSettings, 'tags'),
+    filter, button('检测', detection, 'bolt'), button('数据', dataPanel, 'database'));
+  main.heading.append(toolbar);
   const unassigned = Symbol('uncategorized');
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
   const rowTitle = row => row.model ? '[' + row.site + '] ' + row.model : row.site;
@@ -248,14 +259,9 @@ function mountCatalogPanel(host, storage, connection) {
     const presentations = rowPresentations(availableSites);
     for (const id of siteFilter) if (!availableSites.has(id)) siteFilter.delete(id);
     for (const id of categoryFilter) if (id !== unassigned && !groups.some(group => group.id === id)) categoryFilter.delete(id);
-    const toolbar = make('div', 'api-manager-toolbar');
-    const filter = button('筛选', filters, 'filter');
-    filter.setAttribute('aria-label', '筛选');
     const count = categoryFilter.size + siteFilter.size;
-    if (count) filter.append(make('span', 'filter-badge', String(count)));
-    toolbar.append(button('API 管理', manager, 'layer-group'), button('标签设置', tagSettings, 'tags'),
-      filter, button('检测', detection, 'bolt'), button('数据', dataPanel, 'database'));
-    main.heading.replaceChildren(toolbar);
+    filterBadge.hidden = !count;
+    filterBadge.textContent = String(count);
     const panel = make('div', 'api-manager-panel');
     const list = make('div', 'api-config-list');
     panel.append(list);
@@ -268,7 +274,9 @@ function mountCatalogPanel(host, storage, connection) {
       if (!rows.length && isUnassigned) continue;
       const drawer = make('details', 'inline-drawer');
       drawer.open = !collapsed.has(section.id);
-      const header = make('summary', 'inline-drawer-toggle inline-drawer-header');
+      // Native details owns the state. The host delegates .inline-drawer-toggle
+      // and would independently hide the same content with inline styles.
+      const header = make('summary', 'inline-drawer-header');
       const label = make('span', 'flex-container alignItemsCenter');
       const name = make('b', '', section.name);
       if (!isUnassigned) name.style.color = groupColor(section);

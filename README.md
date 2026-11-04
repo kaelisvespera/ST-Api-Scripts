@@ -1,6 +1,6 @@
 # ST-Api-Scripts
 
-SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文对应 **2.2.6**。
+SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文对应 **2.2.7**。
 
 ## 使用
 
@@ -23,10 +23,10 @@ SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文�
 ```sh
 node tools/build.cjs
 node --experimental-vm-modules --test tests/*.test.cjs
-node --test tests/native-extension.browser.cjs tests/iframe-realm.browser.cjs
+node --test tests/native-extension.browser.cjs tests/iframe-realm.browser.cjs tests/drawer-return.browser.cjs
 ```
 
-本地通过 29 项 Node 回归和 9 项 Edge 浏览器测试。浏览器验收使用 ST、TT 和旧 TT iframe 的隔离夹具，覆盖 320px 手机、平板、横屏和桌面视口。手机和真实服务商尚待实测。原生安装无需酒馆助手，五个旧导入 JSON 对应历史脚本版本。
+本地通过 29 项 Node 回归和 12 项 Edge 浏览器测试。浏览器验收使用 ST、TT 和旧 TT iframe 的隔离夹具，覆盖编辑返回后的分组展开，以及 320px 手机、平板、横屏和桌面视口。手机和真实服务商尚待实测。原生安装无需酒馆助手，五个旧导入 JSON 对应历史脚本版本。
 
 ## 来源与许可证
 
