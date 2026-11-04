@@ -7,6 +7,8 @@ const isText = value => typeof value === 'string';
 const labels = value => Array.from(new Set(value.filter(id => isText(id) && id)));
 const emptyCatalog = () => ({ format: catalogFormat, version: 2, entries: [], groups: [] });
 const formatError = () => new Error('配置文件格式无效，原有配置已保留。');
+const credentialScope = row => JSON.stringify([row.site, row.source, row.url, row.key]);
+const credentialRef = row => row.credentialId ? 'id:' + row.credentialId : 'key:' + row.key;
 
 function validateCatalog(value) {
   if (!isObject(value) || value.format !== catalogFormat || value.version !== 2 ||
@@ -17,11 +19,25 @@ function validateCatalog(value) {
         !isText(group.name) || !group.name.trim()) throw formatError();
     groups.add(group.id);
   }
+  const notes = new Map();
+  if (Object.hasOwn(value, 'keyNotes') && !Array.isArray(value.keyNotes)) throw formatError();
+  for (const note of value.keyNotes ?? []) {
+    if (!isObject(note) || !isText(note.id) || !note.id || notes.has(note.id) || !isText(note.note)) throw formatError();
+    notes.set(note.id, null);
+  }
   const entries = new Set();
   for (const row of value.entries) {
     if (!isObject(row) || !row.id || !isText(row.id) || entries.has(row.id) ||
         ![row.site, row.name, row.source, row.url, row.model, row.key].every(isText) ||
         !Array.isArray(row.groupIds) || row.groupIds.some(id => !groups.has(id))) throw formatError();
+    if (Object.hasOwn(row, 'modelNote') && !isText(row.modelNote)) throw formatError();
+    if (Object.hasOwn(row, 'credentialId')) {
+      if (!notes.has(row.credentialId)) throw formatError();
+      const scope = credentialScope(row);
+      const previous = notes.get(row.credentialId);
+      if (previous !== null && previous !== scope) throw formatError();
+      notes.set(row.credentialId, scope);
+    }
     entries.add(row.id);
   }
   return value;
@@ -101,10 +117,10 @@ function canonical(value) {
     .map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
   return JSON.stringify(value);
 }
-const legacyRecordContent = ({ id, rotationPoolId, ...value }) => canonical(value);
+const legacyRecordContent = ({ id, rotationPoolId, credentialId, modelNote, ...value }) => canonical(value);
 const conflictContent = ({ id, conflictSourceId, ...value }) => canonical(value);
 
-function mergeCatalogRecords(local, incoming, legacy) {
+function mergeCatalogRecords(local, incoming, legacy, compatible) {
   const records = [...local];
   const byId = new Map(local.map(record => [record.id, record]));
   const positions = new Map(local.map((record, index) => [record.id, index]));
@@ -115,11 +131,7 @@ function mergeCatalogRecords(local, incoming, legacy) {
     let result;
     if (existing && canonical(existing) === canonical(record)) {
       result = existing;
-    } else if (existing &&
-        Object.hasOwn(existing, 'rotationPoolId') !== Object.hasOwn(record, 'rotationPoolId') &&
-        legacyRecordContent(existing) === legacyRecordContent(record)) {
-      // A 2.2.0 snapshot may predate pool metadata for this same record.
-      result = Object.hasOwn(existing, 'rotationPoolId') ? existing : record;
+    } else if (existing && compatible && (result = compatible(existing, record))) {
       records[positions.get(record.id)] = result;
     } else if (existing) {
       // Reuse only a copy made for this ID. An independent record can have
@@ -141,10 +153,35 @@ function mergeCatalogRecords(local, incoming, legacy) {
   return { records, ids };
 }
 
+function mergeEntryMetadata(left, right) {
+  if (legacyRecordContent(left) !== legacyRecordContent(right)) return;
+  for (const field of ['rotationPoolId', 'credentialId', 'modelNote']) {
+    if (Object.hasOwn(left, field) && Object.hasOwn(right, field) && left[field] !== right[field]) return;
+  }
+  return { ...left, ...right };
+}
+
+function scopedKeyNotes(catalog) {
+  const scopes = new Map(catalog.entries.filter(row => row.credentialId).map(row => [row.credentialId, credentialScope(row)]));
+  return (catalog.keyNotes ?? []).map(note => ({ ...note, scope: scopes.get(note.id) }));
+}
+
+function pruneKeyNotes(catalog) {
+  if (!catalog.keyNotes) return catalog;
+  const referenced = new Set(catalog.entries.map(row => row.credentialId));
+  const { keyNotes, ...rest } = catalog;
+  const kept = keyNotes.filter(note => referenced.has(note.id));
+  return kept.length ? { ...rest, keyNotes: kept } : rest;
+}
+
 function mergeCatalogs(local, incoming, legacy = false) {
   const { records: groups, ids: groupIds } = mergeCatalogRecords(local.groups, incoming.groups, legacy);
-  const incomingEntries = incoming.entries.map(row => ({ ...row, groupIds: row.groupIds.map(id => groupIds.get(id)) }));
-  const { records: entries, ids } = mergeCatalogRecords(local.entries, incomingEntries, legacy);
+  const { records: notes, ids: credentialIds } = mergeCatalogRecords(scopedKeyNotes(local), scopedKeyNotes(incoming));
+  const incomingEntries = incoming.entries.map(row => ({
+    ...row, groupIds: row.groupIds.map(id => groupIds.get(id)),
+    ...(row.credentialId ? { credentialId: credentialIds.get(row.credentialId) } : {}),
+  }));
+  const { records: entries, ids } = mergeCatalogRecords(local.entries, incomingEntries, legacy, mergeEntryMetadata);
   if (legacy) {
     const existing = new Map(local.entries.map(row => [row.id, row]));
     const incomingPools = new Map();
@@ -164,7 +201,7 @@ function mergeCatalogs(local, incoming, legacy = false) {
       if (matches?.size === 1) entries[index] = { ...row, rotationPoolId: matches.values().next().value };
     }
   }
-  return { ...local, entries, groups };
+  return pruneKeyNotes({ ...local, entries, groups, keyNotes: notes.map(({ scope, ...note }) => note) });
 }
 
 function recoverLegacyRotation(catalog, configs, categories) {

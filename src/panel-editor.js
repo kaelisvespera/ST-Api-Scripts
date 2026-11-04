@@ -46,17 +46,29 @@ function openCatalogEditor(ui, rows, afterSave) {
 
   const drafts = [];
   const draftByKey = new Map();
+  const savedKeyNotes = new Map((storage.catalog.keyNotes ?? []).map(note => [note.id, note.note]));
   for (const row of rows) {
-    if (!draftByKey.has(row.key)) {
-      const draft = { key: row.key, models: [], available: [], result: '' };
-      draftByKey.set(row.key, draft);
+    const ref = credentialRef(row);
+    if (!draftByKey.has(ref)) {
+      const draft = { original: row, key: row.key, note: savedKeyNotes.get(row.credentialId) ?? '', models: [], available: [], result: '' };
+      draftByKey.set(ref, draft);
       drafts.push(draft);
     }
-    draftByKey.get(row.key).models.push({ row, model: row.model, groupIds: [...row.groupIds] });
+    draftByKey.get(ref).models.push({ row, model: row.model, note: row.modelNote ?? '', groupIds: [...row.groupIds] });
   }
   let selected;
   const current = () => selected ?? drafts[0];
-  const modelDraft = model => ({ model, groupIds: [] });
+  const modelDraft = model => ({ model, note: '', groupIds: [] });
+  function noteField(label, value, hint, setValue) {
+    const field = make('label', 'catalog-note-field');
+    const input = make('textarea', 'text_pole');
+    input.rows = 2;
+    input.value = value;
+    input.placeholder = hint;
+    input.addEventListener('input', () => setValue(input.value));
+    field.append(make('span', '', label), input);
+    return field;
+  }
   const keys = make('div', 'st-native-keys-section');
   const addRow = make('div', 'key-add-row api-config-edit-modal__key-add-row');
   const addInput = fieldInput('', '输入 API Key', { type: 'password', placeholder: '输入 API Key', spellcheck: false });
@@ -82,7 +94,7 @@ function openCatalogEditor(ui, rows, afterSave) {
   const addDraft = key => {
     let draft = drafts.find(item => item.key === key);
     if (!draft) {
-      draft = { key, models: [], available: [], result: '' };
+      draft = { key, note: '', models: [], available: [], result: '' };
       drafts.push(draft);
     }
     return draft;
@@ -286,7 +298,7 @@ function openCatalogEditor(ui, rows, afterSave) {
         renderModels();
       }, 'xmark', true);
       remove.classList.add('remove-btn');
-      chip.append(model, remove);
+      chip.append(model, remove, noteField('模型备注', item.note, '例如 0.5/次', value => { item.note = value; }));
       if (storage.catalog.groups.length) {
         const tags = make('details', 'catalog-model-tags');
         tags.open = !!item.showTags;
@@ -356,7 +368,7 @@ function openCatalogEditor(ui, rows, afterSave) {
       if (draft.result) details.append(make('small', 'key-test-result', draft.result));
       const actions = make('div', 'api-config-edit-modal__key-actions');
       actions.append(choose, testKey, reveal, remove);
-      row.append(details, actions);
+      row.append(details, actions, noteField('密钥备注', draft.note, '例如 CCMAX', value => { draft.note = value; }));
       keyList.append(row);
     });
     pullKey.value = selected ? String(drafts.indexOf(selected)) : '';
@@ -394,25 +406,44 @@ function openCatalogEditor(ui, rows, afterSave) {
       if (!drafts.length) throw new Error('请至少保留一个密钥栏，或从配置组列表删除该组。');
       const changed = new Map();
       const added = [];
+      const keyNotes = new Map((catalog.keyNotes ?? []).map(note => [note.id, note]));
+      const linkedScopes = new Map();
       for (const draft of drafts) {
-        const fields = endpoint(draft.key);
+        const fields = { ...endpoint(draft.key), site: site.value.trim() };
         if ((!original || fields.url !== original.url || fields.source !== original.source) &&
             (fields.url || fields.source === 'custom')) endpointUrl(fields.url);
+        const scope = credentialScope(fields);
+        const unchangedScope = draft.original && scope === credentialScope(draft.original);
+        const oldId = draft.original?.credentialId;
+        const keyNote = draft.note.trim();
+        const credentialId = unchangedScope && oldId ? oldId : oldId || keyNote ? makeId() : undefined;
+        if (credentialId) {
+          keyNotes.set(credentialId, { ...keyNotes.get(credentialId), id: credentialId, note: keyNote });
+          if (unchangedScope && !oldId) linkedScopes.set(scope, credentialId);
+        }
         const models = draft.models.length ? draft.models : [modelDraft('')];
         for (const item of models) {
           const model = item.row && item.model === item.row.model ? item.model : item.model.trim();
           const row = {
-            ...item.row, ...fields, id: item.row?.id ?? makeId(), site: site.value.trim(), model,
+            ...item.row, ...fields, id: item.row?.id ?? makeId(), model,
             name: note && item.row ? note.value.trim() : item.row?.name ?? '',
             groupIds: item.groupIds,
           };
+          if (credentialId) row.credentialId = credentialId;
+          const modelNote = item.note.trim();
+          if (modelNote || Object.hasOwn(row, 'modelNote')) row.modelNote = modelNote;
           if (item.row) changed.set(row.id, row);
           else added.push(row);
         }
       }
       return {
         ...catalog,
-        entries: catalog.entries.flatMap(row => existingIds.has(row.id) ? (changed.has(row.id) ? [changed.get(row.id)] : []) : [row]).concat(added),
+        keyNotes: [...keyNotes.values()],
+        entries: catalog.entries.flatMap(row => {
+          if (existingIds.has(row.id)) return changed.has(row.id) ? [changed.get(row.id)] : [];
+          const credentialId = !row.credentialId && linkedScopes.get(credentialScope(row));
+          return [credentialId ? { ...row, credentialId } : row];
+        }).concat(added),
       };
     }, '已保存配置。', () => {
       refresh();

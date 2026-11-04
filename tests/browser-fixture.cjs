@@ -17,6 +17,7 @@ const hostStyle = `
   .popup{color:var(--SmartThemeBodyColor);background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);
     border-radius:10px;padding:12px;box-shadow:0 6px 28px var(--SmartThemeShadowColor)}
   .popup-header{margin:0 0 8px}.popup-controls{margin-top:8px}
+  .wide_dialogue_popup{min-width:var(--sheldWidth,100vw)}
   .menu_button,.text_pole,select{color:inherit;background:#393a3f;border:1px solid var(--SmartThemeBorderColor);
     border-radius:5px;font:inherit;padding:4px 6px}
   .menu_button{display:inline-flex;align-items:center;justify-content:center;gap:4px;cursor:pointer}

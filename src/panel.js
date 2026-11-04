@@ -33,7 +33,7 @@ function mountCatalogPanel(host, storage, connection) {
   doc.head.append(style);
   let busy = false;
   function popup(title, size = 'medium', main = false) {
-    const dialog = make('dialog', 'st-api-manager popup popup_type textAlignJustify st-orb-popup st-api-manager-native-dialog wide_dialogue_popup st-api-manager-native-dialog--' + size);
+    const dialog = make('dialog', 'st-api-manager popup popup_type textAlignJustify st-orb-popup st-api-manager-native-dialog st-api-manager-native-dialog--' + size);
     dialog.setAttribute('aria-label', title);
     if (!main) dialog.dataset.nested = '';
     const frame = make('div', 'popup-body');
@@ -102,7 +102,7 @@ function mountCatalogPanel(host, storage, connection) {
     return save(pane, catalog => ({ ...catalog, entries: catalog.entries.filter(row => !ids.has(row.id)) }),
       '已删除配置。', done);
   }
-  function rowNode(row, group, keyNumber) {
+  function rowNode(row, group, keyNumber, keyNote) {
     const card = make('div', 'secretKeyManagerItem');
     card.dataset.entryId = row.id;
     const info = make('div', 'secretKeyManagerItemInfo');
@@ -116,6 +116,16 @@ function mountCatalogPanel(host, storage, connection) {
       header.append(make('span', 'active-badge-sm', '已应用'));
     }
     info.append(header);
+    if (keyNote || row.modelNote) {
+      const notes = make('dl', 'catalog-row-notes');
+      for (const [label, value] of [['密钥备注', keyNote], ['模型备注', row.modelNote]]) {
+        if (!value) continue;
+        const text = make('dd', '', value);
+        text.title = value;
+        notes.append(make('dt', '', label), text);
+      }
+      info.append(notes);
+    }
     const controls = make('div', 'secretKeyManagerItemActions');
     const actions = make('div', 'secretKeyManagerItemActionsRow');
     actions.append(
@@ -135,18 +145,19 @@ function mountCatalogPanel(host, storage, connection) {
     return card;
   }
   function refresh() {
-    const { groups, entries } = storage.catalog;
+    const { groups, entries, keyNotes = [] } = storage.catalog;
+    const notesById = new Map(keyNotes.map(note => [note.id, note.note]));
     const availableSites = sites();
     const keyNumbers = new Map();
     for (const rows of availableSites.values()) {
-      const keys = [...new Set(rows.map(row => row.key))];
+      const keys = [...new Set(rows.map(credentialRef))];
       const models = new Map();
       for (const row of rows) {
         if (!models.has(row.model)) models.set(row.model, new Set());
-        models.get(row.model).add(row.key);
+        models.get(row.model).add(credentialRef(row));
       }
       for (const row of rows) {
-        if (models.get(row.model).size > 1) keyNumbers.set(row.id, keys.indexOf(row.key) + 1);
+        if (models.get(row.model).size > 1) keyNumbers.set(row.id, keys.indexOf(credentialRef(row)) + 1);
       }
     }
     for (const id of siteFilter) if (!availableSites.has(id)) siteFilter.delete(id);
@@ -187,7 +198,7 @@ function mountCatalogPanel(host, storage, connection) {
       });
       const wrap = make('div', 'inline-drawer-content');
       const cards = make('div', 'secretKeyManagerList');
-      if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, keyNumbers.get(row.id))));
+      if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, keyNumbers.get(row.id), notesById.get(row.credentialId))));
       else cards.append(make('p', 'st-orb-empty-state', '此标签暂无配置'));
       wrap.append(cards);
       drawer.append(header, wrap);
@@ -212,7 +223,7 @@ function mountCatalogPanel(host, storage, connection) {
           make('span', 'group-count', new Set(rows.map(entry => entry.model).filter(Boolean)).size + ' 个模型'));
         const url = make('span', 'group-url', row.url || row.source);
         url.title = row.url;
-        details.append(url, make('span', 'group-keys', new Set(rows.map(entry => entry.key).filter(Boolean)).size + ' 个密钥'));
+        details.append(url, make('span', 'group-keys', new Set(rows.filter(entry => entry.key).map(credentialRef)).size + ' 个密钥'));
         info.append(head, details);
         const actions = make('div', 'group-actions');
         actions.append(

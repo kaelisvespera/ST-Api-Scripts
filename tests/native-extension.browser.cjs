@@ -281,6 +281,153 @@ for (const mode of ['st', 'tt']) {
     assert.equal(secrets.get('api_key_custom').find(item => item.active).id, manuallySelected);
   }));
 
+  test(mode + ': key and model notes survive edits and imports across screen sizes', { timeout: 90000 }, () => withBrowser(mode, async ({
+    tab, open, flush, assertConnection, stores,
+  }) => {
+    const panel = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
+    const editor = tab.getByRole('dialog', { name: '编辑 API 配置', exact: true });
+    const readCatalog = async () => {
+      await flush();
+      return JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog;
+    };
+    const readNote = (catalog, row) => catalog.keyNotes.find(note => note.id === row.credentialId)?.note;
+    const card = row => panel.locator('[data-entry-id="' + row.id + '"]');
+    const selectKey = index => exactButton(editor, '管理第 ' + index + ' 个密钥的模型').click();
+    const saveEditor = async () => {
+      await exactButton(editor, '保存').click();
+      await editor.waitFor({ state: 'hidden' });
+    };
+    await open();
+    const older = await readCatalog();
+    const [first, second] = older.entries;
+    await exactButton(card(first), '编辑').click();
+    await editor.getByLabel('密钥备注', { exact: true }).fill('CCMAX');
+    await editor.getByLabel('模型备注', { exact: true }).fill('0.5/次');
+    await saveEditor();
+    await expectText(card(first), 'CCMAX');
+    await expectText(card(first), '0.5/次');
+    assert.equal(await card(second).getByText('CCMAX').count(), 0);
+    const manager = await openPane(tab, panel, 'API 管理');
+    await exactButton(manager, '编辑此组的端点、密钥和模型').click();
+    const keyNotes = editor.getByLabel('密钥备注', { exact: true });
+    const modelNotes = editor.getByLabel('模型备注', { exact: true });
+    assert.equal(await keyNotes.first().inputValue(), 'CCMAX');
+    assert.equal(await modelNotes.first().inputValue(), '0.5/次');
+    await editor.getByLabel('手动输入模型 ID').fill('additional-model');
+    await exactButton(editor, '添加模型').click();
+    await modelNotes.nth(1).fill('额外模型的独立备注');
+    const longNote = '备用账号\n' + 'LongTextWithoutSpaces'.repeat(30);
+    await keyNotes.nth(1).fill(longNote);
+    await selectKey(2);
+    await modelNotes.first().fill('0.2/次');
+    await selectKey(1);
+    assert.equal(await modelNotes.first().inputValue(), '0.5/次');
+
+    await tab.addStyleTag({ content: mode === 'tt'
+      ? ':root{--mainFontSize:18px;--SmartThemeBodyColor:#182631;--SmartThemeBlurTintColor:#d7e1e8;--SmartThemeBorderColor:#6b8394;--SmartThemeQuoteColor:#245e92}.menu_button,.text_pole,select{background:#f6fafc}'
+      : ':root{--mainFontSize:18px}' });
+    const sizes = [[320, 568], [375, 812], [390, 844], [430, 932], [667, 375], [844, 390],
+      [768, 1024], [1024, 768], [1280, 900]];
+    for (const [width, height] of sizes) {
+      await tab.setViewportSize({ width, height });
+      for (const dialog of [panel, editor]) {
+        const fit = await dialog.evaluate(element => {
+          const { left, right, top, bottom } = element.getBoundingClientRect();
+          const scroll = element.querySelector('.popup-scroll-content');
+          const footer = element.querySelector('.popup-controls');
+          return { left, right, top, bottom, overflow: scroll.scrollWidth - scroll.clientWidth,
+            footerBottom: footer.getBoundingClientRect().bottom,
+            buttonsFit: [...footer.querySelectorAll('button')].every(button => {
+              const rect = button.getBoundingClientRect();
+              return rect.left >= left && rect.right <= right && rect.bottom <= bottom;
+            }) };
+        });
+        const device = mode + ' ' + width + '×' + height + ' ' + await dialog.getAttribute('aria-label');
+        assert.ok(fit.left >= 15 && fit.right <= width - 15 && fit.top >= 15 && fit.bottom <= height - 15, device + ' margins');
+        assert.ok(fit.overflow <= 1 && fit.footerBottom <= fit.bottom && fit.buttonsFit, device + ' overflow ' + JSON.stringify(fit));
+      }
+      if (width <= 430) {
+        const input = await editor.getByLabel('输入 API Key', { exact: true }).boundingBox();
+        assert.ok(input.width >= 200, mode + ' ' + width + ' credential entry field');
+      }
+      if ([390, 768, 844, 1280].includes(width)) {
+        await keyNotes.first().scrollIntoViewIfNeeded();
+        await capture(tab, mode + '-key-notes-' + width);
+        await modelNotes.first().scrollIntoViewIfNeeded();
+        await capture(tab, mode + '-model-notes-' + width);
+      }
+    }
+    await tab.setViewportSize({ width: 390, height: 844 });
+    await saveEditor();
+    await exactButton(manager, '关闭').click();
+    let saved = await readCatalog();
+    let [a, b, extra] = saved.entries;
+    assert.equal(a.id, first.id);
+    assert.equal(b.id, second.id);
+    assert.equal(a.name, first.name);
+    assert.equal(a.credentialId, extra.credentialId);
+    assert.notEqual(a.credentialId, b.credentialId);
+    assert.deepEqual(saved.entries.map(row => row.modelNote), ['0.5/次', '0.2/次', '额外模型的独立备注']);
+    assert.equal(readNote(saved, b), longNote);
+
+    await open();
+    await expectText(card(extra), 'CCMAX');
+    await expectText(card(b), '0.2/次');
+    await capture(tab, mode + '-notes-main-390');
+    await exactButton(card(extra), '编辑').click();
+    await keyNotes.first().fill('CCMAX 更新');
+    await modelNotes.first().fill('');
+    await saveEditor();
+    await expectText(card(a), 'CCMAX 更新');
+    assert.equal(await card(extra).getByText('额外模型的独立备注').count(), 0);
+    assert.equal(await card(a).getByText('0.5/次').count(), 1);
+
+    const data = await openPane(tab, panel, '数据');
+    const [download] = await Promise.all([tab.waitForEvent('download'), exactButton(data, '导出').click()]);
+    const chunks = [];
+    for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+    const exported = Buffer.concat(chunks);
+    saved = await readCatalog();
+    assert.deepEqual(JSON.parse(exported), saved);
+    async function importFile(content, replace) {
+      await data.locator('input[type=file]').setInputFiles({ name: 'notes.json', mimeType: 'application/json', buffer: content });
+      const importPane = tab.getByRole('dialog', { name: '导入方式', exact: true });
+      if (replace) tab.once('dialog', dialog => dialog.accept());
+      await importPane.getByRole('button', { name: replace ? /替换导入/ : /合并导入/ }).click();
+      await expectText(data, replace ? '已替换导入配置。' : '已合并导入配置。');
+    }
+    await importFile(Buffer.from(JSON.stringify(older)), false);
+    assert.deepEqual(await readCatalog(), saved);
+    await exactButton(data, '关闭').click();
+    await exactButton(card(extra), '编辑').click();
+    await exactButton(editor, '移除模型').click();
+    await saveEditor();
+    const removed = await readCatalog();
+    assert.equal(removed.entries.find(row => row.id === extra.id), undefined);
+    assert.equal(removed.entries.find(row => row.key === extra.key && !row.model).modelNote, undefined);
+    assert.equal(readNote(removed, removed.entries.find(row => row.id === a.id)), 'CCMAX 更新');
+    assert.equal(removed.entries.find(row => row.id === a.id).modelNote, '0.5/次');
+    const replacePane = await openPane(tab, panel, '数据');
+    assert.equal(await replacePane.isVisible(), true);
+    await importFile(exported, true);
+    assert.deepEqual(await readCatalog(), saved);
+    await exactButton(replacePane, '关闭').click();
+    await exactButton(card(a), '编辑').click();
+    await keyNotes.first().fill('');
+    await saveEditor();
+    const cleared = await readCatalog();
+    assert.equal(readNote(cleared, a), '');
+    assert.equal(await card(extra).getByText('CCMAX 更新').count(), 0);
+    const groupPane = await openPane(tab, panel, 'API 管理');
+    await exactButton(groupPane, '编辑此组的端点、密钥和模型').click();
+    await exactButton(editor, '移除密钥').first().click();
+    await saveEditor();
+    const remaining = await readCatalog();
+    assert.deepEqual(remaining.entries, [b]);
+    assert.deepEqual(remaining.keyNotes, [{ id: b.credentialId, note: longNote }]);
+    await assertConnection();
+  }));
+
   test(mode + ': the account conflict dialog honors cancel, each choice, and a newer revision', { timeout: 45000 }, () => withBrowser(mode, async ({
     tab, open, flush, assertConnection, stores, accounts,
   }) => {

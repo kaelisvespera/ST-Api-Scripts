@@ -169,7 +169,7 @@ async function openCatalogStorage(host, context, browserStorage) {
     canSync,
     flush: () => pendingWrite,
     update: change => transact(async () => {
-      const catalog = validateCatalog(change(state.catalog));
+      const catalog = pruneKeyNotes(validateCatalog(change(state.catalog)));
       await persist({ catalog, sync: { ...state.sync, pending: true } });
     }),
     pull: () => transact(async () => {

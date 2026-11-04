@@ -175,6 +175,56 @@ test('a subset import retains the conflicting group and its membership across ex
 });
 
 for (const mode of ['st', 'tt']) {
+  test(mode + ' preserves independent key and model notes through legacy imports and account choices', async () => {
+    const older = plain(api.migrateCatalog(grouped, categories));
+    const local = {
+      ...older,
+      keyNotes: [{ id: 'credential-a', note: 'CCMAX' }, { id: 'credential-b', note: '备用' }],
+      entries: older.entries.map(row => ({
+        ...row, credentialId: row.key === 'fixture-key-a' ? 'credential-a' : 'credential-b',
+        modelNote: row.model === 'same-model' ? row.key === 'fixture-key-a' ? '0.5/次' : '0.2/次' : '',
+      })),
+    };
+    const incoming = plain(local);
+    incoming.keyNotes[0].note = '';
+    incoming.entries[0].modelNote = '账户模型备注';
+    const account = new Map([[accountV2, JSON.stringify({ catalog: incoming, revision: 'notes-remote' })]]);
+    const fixture = harness(mode, { account });
+    let storage = await fixture.open();
+    await storage.update(() => local);
+    await storage.update(catalog => api.mergeCatalogs(catalog, older));
+    await storage.update(catalog => api.mergeCatalogs(catalog, api.migrateCatalog(grouped, categories), true));
+    storage = await fixture.open();
+    assert.deepEqual(plain(storage.catalog), local);
+    const conflict = await storage.pull();
+    assert.deepEqual(plain(storage.catalog), local, 'dismissing the conflict leaves notes intact');
+    await conflict.resolve('merge');
+    const merged = plain(storage.catalog);
+    assert.equal(merged.entries.length, 6);
+    assert.equal(merged.keyNotes.length, 3);
+    const copies = merged.entries.filter(row => row.conflictSourceId);
+    assert.equal(new Set(copies.map(row => row.credentialId)).size, 1);
+    assert.notEqual(copies[0].credentialId, 'credential-a');
+    assert.equal(merged.keyNotes.find(note => note.id === copies[0].credentialId).note, '');
+    assert.equal(copies[0].modelNote, '账户模型备注');
+    assert.deepEqual(merged.entries.slice(0, 4), local.entries);
+    assert.deepEqual(plain(api.mergeCatalogs(merged, incoming)), merged);
+    assert.deepEqual(JSON.parse(account.get(accountV2)).catalog, merged);
+    const peer = await harness(mode === 'tt' ? 'st' : 'tt', { account }).open();
+    await peer.pull();
+    assert.deepEqual(plain(peer.catalog), merged);
+
+    account.set(accountV2, JSON.stringify({ catalog: incoming, revision: 'notes-replace' }));
+    await (await storage.pull()).resolve('account');
+    assert.deepEqual(plain(storage.catalog), incoming);
+    await storage.update(() => local);
+    account.set(accountV2, JSON.stringify({ catalog: incoming, revision: 'notes-overwrite' }));
+    await (await storage.push()).resolve('local');
+    assert.deepEqual(JSON.parse(account.get(accountV2)).catalog, local);
+    assert.equal(storage.catalog.entries[0].name, older.entries[0].name);
+    assert.deepEqual(plain(storage.catalog.entries[0].history), older.entries[0].history);
+  });
+
   test(mode + ' ignores both legacy and previously applied rotation pools on generation', async () => {
     const catalog = api.migrateCatalog(grouped, categories);
     const modelRows = catalog.entries.filter(row => row.model === 'same-model');
