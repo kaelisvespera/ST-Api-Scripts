@@ -59,14 +59,20 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager.popup .popup-scroll-content { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }
 .st-api-manager.popup .popup-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; flex-shrink: 0; margin-top: 8px; }
 .st-api-manager.popup .catalog-main-footer { align-items: center; justify-content: space-between; }
-.st-api-manager.popup .catalog-tag-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.st-api-manager .api-manager-toolbar > .menu_button,
-.st-api-manager .catalog-tag-actions > .menu_button {
+.st-api-manager.popup .catalog-tag-actions { gap: 6px; }
+.st-api-manager .catalog-tag-action-pair {
+  display: flex; flex-wrap: wrap; gap: 6px; flex: 1 0 max-content; min-width: 0; max-width: 100%;
+}
+.st-api-manager .catalog-tag-action-pair > .menu_button {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 1 0 max-content; width: auto; min-height: 38px; margin: 0; padding: 4px 8px;
+  font-size: var(--st-orb-font-base); line-height: 1.25; white-space: nowrap;
+}
+.st-api-manager .api-manager-toolbar > .menu_button {
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 34px; width: auto; margin: 0; gap: 4px; padding: 4px 8px; white-space: nowrap;
 }
-.st-api-manager .api-manager-toolbar > .menu_button i + span,
-.st-api-manager .catalog-tag-actions > .menu_button i + span { margin: 0; }
+.st-api-manager .api-manager-toolbar > .menu_button i + span { margin: 0; }
 .st-api-manager [role="status"]:empty { display: none; }
 .st-api-manager [role="status"] { margin: 5px 0; overflow-wrap: anywhere; }
 .st-api-manager .sync-conflict-modal,
@@ -113,12 +119,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   dialog.st-api-manager.popup { --st-orb-font-xs: calc(var(--mainFontSize, 15px) * .75); --st-orb-font-sm: calc(var(--mainFontSize, 15px) * .85); --st-orb-spacing-md: 7px; --st-orb-spacing-lg: 8px; --st-orb-spacing-xl: 10px; --st-orb-spacing-2xl: 12px; }
   dialog.st-api-manager.popup { --catalog-dialog-padding: 10px; }
   .st-api-manager .api-manager-toolbar { column-gap: 4px; }
-  .st-api-manager .api-manager-toolbar > .menu_button,
-  .st-api-manager .catalog-tag-actions > .menu_button { font-size: min(13px, var(--st-orb-font-sm)); padding-inline: 4px; }
-  .st-api-manager .api-manager-toolbar > .menu_button { padding-inline: 3px; }
-}
-@media (max-width: 350px) {
-  .st-api-manager.popup .catalog-tag-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .st-api-manager .api-manager-toolbar > .menu_button { font-size: min(13px, var(--st-orb-font-sm)); padding-inline: 3px; }
 }
 
 :where(.st-api-manager) .st-native-keys-section { display:flex;flex-direction:column;gap:var(--st-orb-spacing-native,6px);margin-top:6px;padding-left:7px;text-align:left !important; }
@@ -503,31 +504,28 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-config-card .catalog-card-alias {
   overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.st-api-manager .catalog-config-card .catalog-card-site,
+.st-api-manager .catalog-card-notes { font-size: var(--st-orb-font-base); line-height: 1.35; }
+.st-api-manager .catalog-config-card .catalog-card-site { font-weight: 500; }
 .st-api-manager .catalog-card-notes {
   display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px;
-  margin: 0; padding-inline: 2px; font-size: inherit; line-height: 1.35;
+  margin: 0; padding-inline: 2px;
 }
 .st-api-manager .catalog-card-notes dt { color: color-mix(in srgb, currentColor 76%, transparent); }
 .st-api-manager .catalog-card-notes dd {
   min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .st-api-manager .catalog-card-actions {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-  margin-top: 2px; padding-top: 7px; border-top: 1px solid var(--st-orb-border-soft);
+  display: flex; flex-wrap: wrap; gap: 5px;
+  margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--st-orb-border-soft);
 }
-.st-api-manager .catalog-card-secondary-actions { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
-.st-api-manager .catalog-card-actions button {
-  flex: 0 0 auto; width: auto; min-width: 44px; min-height: 40px;
-  padding: 4px 8px; margin: 0; white-space: nowrap;
+.st-api-manager .catalog-card-actions > .menu_button_icon {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: fit-content; min-width: 26px; height: auto; margin: 0; aspect-ratio: auto;
 }
 .st-api-manager .catalog-card-actions button:focus-visible {
   outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px;
 }
-.st-api-manager .catalog-card-actions > .catalog-card-apply {
-  border-color: color-mix(in srgb, var(--SmartThemeQuoteColor) 48%, var(--SmartThemeBorderColor));
-  background: color-mix(in srgb, var(--SmartThemeQuoteColor) 10%, var(--SmartThemeBlurTintColor));
-}
-.st-api-manager .catalog-card-actions .catalog-delete-action { color: var(--st-orb-danger); }
 .st-api-manager .catalog-selection-model,
 .st-api-manager .catalog-details dd { overflow-wrap: anywhere; }
 .st-api-manager .catalog-details { display: grid; gap: 4px; margin: 0; }

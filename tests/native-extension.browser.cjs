@@ -106,7 +106,7 @@ for (const mode of ['st', 'tt']) {
 
     const tags = await openPane(tab, panel, '标签设置');
     await assertOneRow(tags.locator('.selection-toolbar > button'), 3);
-    await assertOneRow(tags.locator('.catalog-tag-actions > button'), 4);
+    await assertOneRow(tags.locator('.catalog-tag-actions button'), 4);
     await capture(tab, mode + '-tag-settings-mobile');
     await tags.getByLabel('新分组名称').fill('第三组');
     await exactButton(tags, '新建分类').click();
@@ -480,11 +480,20 @@ for (const mode of ['st', 'tt']) {
     for (const [index, row] of [a, b, c, d].entries()) await expectText(card(row), 'Key ' + (index + 1));
     assert.equal(await panel.getByText(/fixture-key-[a-d]/).count(), 0);
 
-    await tab.addStyleTag({ content: mode === 'tt'
-      ? ':root{--mainFontSize:18px;--SmartThemeBodyColor:#182631;--SmartThemeBlurTintColor:#d7e1e8;--SmartThemeBorderColor:#6b8394;--SmartThemeQuoteColor:#245e92}.menu_button{background:#f6fafc}'
-      : ':root{--mainFontSize:18px}' });
-    for (const [width, height] of [[320, 568], [375, 812], [390, 844], [430, 932], [667, 375], [844, 390],
-      [768, 1024], [1024, 768], [1280, 900]]) {
+    // ST and TT use the same native button padding and icon gap. TT uses
+    // fit-content where ST's general menu_button rule uses min-content.
+    const hostButtonStyle = `
+      :root{--mainFontSize:20px}
+      .menu_button{display:flex;align-items:center;justify-content:center;width:${mode === 'tt' ? 'fit-content' : 'min-content'};
+        padding:3px 5px;margin:5px 0;filter:grayscale(.5)}
+      .menu_button_icon{display:flex;align-items:center;width:fit-content;gap:5px}
+      .fa-fw{width:1.25em;text-align:center}
+    `;
+    const lightTheme = ':root{--SmartThemeBodyColor:#182631;--SmartThemeBlurTintColor:#d7e1e8;--SmartThemeBorderColor:#6b8394;--SmartThemeQuoteColor:#245e92}.menu_button{background:#f6fafc}';
+    await tab.addStyleTag({ content: hostButtonStyle + (mode === 'tt' ? lightTheme : '') });
+    const viewports = [[320, 568], [375, 812], [390, 844], [430, 932], [667, 375], [844, 390],
+      [768, 1024], [1024, 768], [1280, 900]];
+    for (const [width, height] of viewports) {
       await tab.setViewportSize({ width, height });
       const fit = await card(a).evaluate(row => {
         const cardBox = row.getBoundingClientRect();
@@ -497,25 +506,29 @@ for (const mode of ['st', 'tt']) {
         const dialog = row.closest('dialog');
         const content = dialog.querySelector('.popup-scroll-content');
         const buttons = [...actions.querySelectorAll('button')].map(button => button.getBoundingClientRect());
+        const sizes = [...row.querySelectorAll('.catalog-card-site, .catalog-card-notes dt, .catalog-card-notes dd')]
+          .map(node => getComputedStyle(node).fontSize);
         return {
           titleFull: title.getBoundingClientRect().width >= cardBox.width - 26,
           twoLines: text.getBoundingClientRect().height <= 2 * Number.parseFloat(getComputedStyle(text).lineHeight) + 1,
           notesFull: noteBox.width >= cardBox.width - 26 && noteBox.bottom < barBox.top,
           notesFit: [...notes.querySelectorAll('dd')].every(note => note.scrollWidth <= note.clientWidth + 1),
-          actionsFit: buttons.every(button => button.width >= 44 && button.height >= 40 &&
+          actionsFit: buttons.every(button => button.width >= 26 && button.width <= 40 && button.height >= 26 && button.height <= 36 &&
             button.left >= cardBox.left && button.right <= cardBox.right),
-          actionRows: new Set(buttons.map(button => button.top)).size,
-          lastActionsTogether: buttons.at(-1).top === buttons.at(-2).top,
+          actionRows: new Set(buttons.map(button => Math.round(button.top + button.height / 2))).size,
+          actionGap: getComputedStyle(actions).columnGap,
+          sizes,
           overflow: Math.max(row.scrollWidth - row.clientWidth, content.scrollWidth - content.clientWidth),
           margin: dialog.getBoundingClientRect().left,
         };
       });
       const label = mode + ' ' + width + '×' + height + ' ' + JSON.stringify(fit);
       assert.ok(fit.titleFull && fit.twoLines && fit.notesFull && fit.notesFit &&
-        fit.actionsFit && fit.lastActionsTogether && fit.overflow <= 1 && fit.margin >= 15, label);
-      if (width === 320) assert.ok(fit.actionRows > 1, label);
-      if (width >= 768) assert.equal(fit.actionRows, 1, label);
-      if ([320, 390, 768, 844, 1280].includes(width)) await capture(tab, mode + '-bottom-actions-' + width);
+        fit.actionsFit && fit.overflow <= 1 && fit.margin >= 15, label);
+      assert.equal(fit.actionRows, 1, label);
+      assert.equal(fit.actionGap, '5px', label);
+      assert.deepEqual(fit.sizes, Array(5).fill('20px'), label);
+      if ([320, 390, 768, 844, 1280].includes(width)) await capture(tab, mode + '-legacy-actions-' + width);
     }
     await tab.setViewportSize({ width: 390, height: 844 });
     const title = exactButton(card(a), model);
@@ -527,7 +540,7 @@ for (const mode of ['st', 'tt']) {
     await expectText(details, originalNames[0]);
     await expectText(details, model);
     await expectText(details, modelNote);
-    await capture(tab, mode + '-bottom-actions-details-390');
+    await capture(tab, mode + '-legacy-actions-details-390');
     await exactButton(details, '关闭').click();
     assert.equal(await title.evaluate(button => button === document.activeElement), true);
 
@@ -538,14 +551,67 @@ for (const mode of ['st', 'tt']) {
     await editor.waitFor({ state: 'hidden' });
     assert.equal(await editAction.evaluate(button => button === document.activeElement), true);
     assert.equal(await exactButton(card(a), '更多操作').count(), 0);
-    assert.deepEqual(await card(a).locator('.catalog-card-actions button').allTextContents(),
-      ['应用', '编辑', '管理分组', '移出分组', '删除']);
+    const iconButtons = await card(a).locator('.secretKeyManagerItemActions > .secretKeyManagerItemActionsRow > button')
+      .evaluateAll(buttons => buttons.map(button => ({
+        name: button.getAttribute('aria-label'), title: button.title, text: button.textContent,
+        nativeClasses: ['menu_button', 'menu_button_icon', 'interactable'].every(name => button.classList.contains(name)),
+        icon: [...button.firstElementChild.classList].find(name => !['fa-solid', 'fa-fw'].includes(name)),
+        fixed: button.firstElementChild.classList.contains('fa-fw'),
+      })));
+    assert.deepEqual(iconButtons.map(button => [button.name, button.title, button.icon, button.fixed]), [
+      ['应用', '应用', 'fa-check', true], ['编辑', '编辑', 'fa-pen-to-square', true],
+      ['管理分组', '管理分组', 'fa-tag', true], ['移出当前分组', '移出标签分组', 'fa-xmark', true],
+      ['删除', '删除', 'fa-trash', false],
+    ]);
+    assert.ok(iconButtons.every(button => button.nativeClasses && !button.text));
 
     const tags = await openPane(tab, panel, '标签设置');
     const search = tags.getByLabel('搜索组名、模型、标题或备注');
+    const verifyTagFooter = async (disabled, state) => {
+      for (const [width, height] of viewports) {
+        await tab.setViewportSize({ width, height });
+        const fit = await tags.locator('.catalog-tag-actions').evaluate(footer => {
+          const bounds = footer.getBoundingClientRect();
+          const dialog = footer.closest('dialog').getBoundingClientRect();
+          const buttons = [...footer.querySelectorAll('button')];
+          return {
+            inDialog: bounds.left >= dialog.left && bounds.right <= dialog.right && bounds.bottom <= dialog.bottom,
+            overflow: footer.scrollWidth - footer.clientWidth,
+            rows: new Set(buttons.map(button => button.getBoundingClientRect().top)).size,
+            labels: buttons.map(button => button.textContent),
+            disabled: buttons.map(button => button.disabled),
+            icons: footer.querySelectorAll('i').length,
+            sizes: buttons.map(button => getComputedStyle(button).fontSize),
+            fits: buttons.every(button => {
+              const box = button.getBoundingClientRect();
+              const range = document.createRange();
+              range.selectNodeContents(button);
+              const text = range.getBoundingClientRect();
+              return box.height >= 38 && box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+                text.left >= box.left + 1 && text.right <= box.right - 1 &&
+                text.top >= box.top && text.bottom <= box.bottom;
+            }),
+          };
+        });
+        const label = mode + ' ' + state + ' ' + width + '×' + height + ' ' + JSON.stringify(fit);
+        assert.ok(fit.inDialog && fit.overflow <= 1 && fit.fits, label);
+        assert.equal(fit.icons, 0, label);
+        assert.deepEqual(fit.labels, ['取消', '添加标签', '移除标签', '清空标签'], label);
+        assert.deepEqual(fit.disabled, disabled, label);
+        assert.deepEqual(fit.sizes, Array(4).fill('20px'), label);
+        if (width === 320) assert.equal(fit.rows, 2, label);
+        if (width >= 768) assert.equal(fit.rows, 1, label);
+        if ([320, 390].includes(width)) await capture(tab, mode + '-tag-footer-' + state + '-' + width);
+      }
+    };
+    await verifyTagFooter([false, true, true, true], 'disabled');
     await search.fill('星港 官key 0.126');
     assert.equal(await tags.locator('.config-item').count(), 1);
     await expectText(tags, 'Key 1');
+    await tags.locator('.config-item input').check();
+    await tags.getByRole('checkbox', { name: '第一组', exact: true }).check();
+    await verifyTagFooter([false, false, false, false], 'enabled');
+    await tab.setViewportSize({ width: 390, height: 844 });
     await search.fill('星港 新号');
     assert.equal(await tags.locator('.config-item').count(), 2);
     await search.fill(model);

@@ -152,41 +152,44 @@ function mountCatalogPanel(host, storage, connection) {
     (card?.querySelector(selector) ?? main.heading.querySelector('button'))?.focus();
   }
   function rowActions(row, group) {
-    const actions = make('div', 'catalog-card-actions');
+    const wrapper = make('div', 'secretKeyManagerItemActions');
+    const actions = make('div', 'secretKeyManagerItemActionsRow catalog-card-actions');
+    const action = (label, click, glyph) => {
+      const control = button(label, click, glyph, true);
+      if (glyph !== 'trash') control.firstElementChild.classList.add('fa-fw');
+      return control;
+    };
     const refreshAndFocus = selector => {
       refresh();
       focusRowAction(row, group, selector);
     };
-    const apply = button('应用', () => run(main, () => connection.apply(row), undefined, () =>
-      refreshAndFocus('.catalog-card-apply')));
+    const apply = action('应用', () => run(main, () => connection.apply(row), undefined, () =>
+      refreshAndFocus('.catalog-card-apply')), 'check');
     apply.classList.add('catalog-card-apply');
-    const editButton = button('编辑', event => {
+    const editButton = action('编辑', event => {
       event.currentTarget.focus({ preventScroll: true });
       edit([row], () => focusRowAction(row, group));
-    });
+    }, 'pen-to-square');
     editButton.classList.add('catalog-card-edit');
-    const groups = button('管理分组', event => {
+    const groups = action('管理分组', event => {
       event.currentTarget.focus({ preventScroll: true });
       rowGroups(row, () => focusRowAction(row, group, '.catalog-card-groups'));
-    });
+    }, 'tag');
     groups.classList.add('catalog-card-groups');
     actions.append(apply, editButton, groups);
-    const secondary = make('div', 'catalog-card-secondary-actions');
     if (group) {
-      const remove = button('移出分组', () => {
+      const remove = action('移出当前分组', () => {
         save(main, catalog => ({
           ...catalog, entries: catalog.entries.map(entry => entry.id === row.id
             ? { ...entry, groupIds: entry.groupIds.filter(id => id !== group.id) } : entry),
         }), '已移出标签分组。', () => refreshAndFocus());
-      });
-      remove.setAttribute('aria-label', '移出当前分组');
-      secondary.append(remove);
+      }, 'xmark');
+      remove.title = '移出标签分组';
+      actions.append(remove);
     }
-    const remove = button('删除', () => deleteRows(main, [row], '删除这一条配置？', () => refreshAndFocus()));
-    remove.classList.add('catalog-delete-action');
-    secondary.append(remove);
-    actions.append(secondary);
-    return actions;
+    actions.append(action('删除', () => deleteRows(main, [row], '删除这一条配置？', () => refreshAndFocus()), 'trash'));
+    wrapper.append(actions);
+    return wrapper;
   }
   function rowNode(row, group, presentation) {
     const card = make('div', 'secretKeyManagerItem catalog-config-card');
@@ -456,11 +459,11 @@ function mountCatalogPanel(host, storage, connection) {
         return terms.every(term => searchable.includes(term));
       });
     }
-    const addTags = button('添加标签', () => changeTags('add'), 'plus');
-    const removeTags = button('移除标签', () => changeTags('remove'), 'minus');
+    const addTags = button('添加标签', () => changeTags('add'));
+    const removeTags = button('移除标签', () => changeTags('remove'));
     const clearTags = button('清空标签', () => {
       if (host.confirm('清空所选配置的标签？')) changeTags('clear');
-    }, 'eraser');
+    });
     function setCount() {
       count.textContent = '已选中 ' + selectedRows.size + ' / ' + storage.catalog.entries.length + ' 个';
       addTags.disabled = removeTags.disabled = !selectedRows.size || !selectedTags.size;
@@ -567,7 +570,11 @@ function mountCatalogPanel(host, storage, connection) {
     wrap.append(searchSection, toolbar, list, tagPanel);
     pane.scroll.append(wrap);
     pane.footer.classList.add('catalog-tag-actions');
-    pane.footer.append(closeButton(pane, '取消'), addTags, removeTags, clearTags);
+    for (const controls of [[button('取消', () => pane.dialog.close()), addTags], [removeTags, clearTags]]) {
+      const pair = make('div', 'catalog-tag-action-pair');
+      pair.append(...controls);
+      pane.footer.append(pair);
+    }
     renderRows();
     renderTags();
     pane.open();
