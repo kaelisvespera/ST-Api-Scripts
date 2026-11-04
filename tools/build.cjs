@@ -3,8 +3,10 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 const { version } = JSON.parse(read('manifest.json'));
-const sources = ['catalog.js', 'storage.js', 'panel.js', 'bootstrap.js'];
-const shared = sources.map(file => read('src/' + file)).join('\n');
+const sources = ['catalog.js', 'storage.js', 'connection.js', 'panel-editor.js', 'panel.js', 'bootstrap.js'];
+const shared = 'const catalogPanelVersion = ' + JSON.stringify(version) + ';\n'
+  + 'const catalogPanelCss = ' + JSON.stringify(read('src/panel.css')) + ';\n'
+  + sources.map(file => read('src/' + file)).join('\n');
 function build(file, host) {
   const entry = 'const manager = await startCatalogManager(' + host + ', window.localStorage);\n'
     + 'export const initApiManager = manager.open;\n'

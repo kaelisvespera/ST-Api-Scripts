@@ -1,279 +1,638 @@
-function mountCatalogPanel(host, storage) {
+function mountCatalogPanel(host, storage, connection) {
   const doc = host.document;
-  function node(tag, text, attributes = {}) {
+  const make = (tag, className = '', text) => {
     const element = doc.createElement(tag);
+    if (className) element.className = className;
     if (text !== undefined) element.textContent = text;
-    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
-    return element;
-  }
-  const button = (text, click) => {
-    const element = node('button', text, { type: 'button', class: 'menu_button' });
-    element.addEventListener('click', click);
     return element;
   };
-  const dialog = node('dialog', undefined, { class: 'st-api-manager', 'aria-label': 'API 管理器' });
-  const heading = node('header');
-  const body = node('section');
-  const status = node('p', '', { role: 'status' });
-  dialog.append(heading, status, body);
-  const style = node('style', `
-.st-api-manager{width:min(48rem,calc(100% - 1.5rem));max-height:calc(100% - 1.5rem);box-sizing:border-box;
- color:var(--SmartThemeBodyColor,#f1f1f1);background:var(--SmartThemeBlurTintColor,#26272a);
- border:1px solid var(--SmartThemeBorderColor,#999);border-radius:.65rem;padding:1rem;overflow:auto}
-.st-api-manager::backdrop{background:#0009}
-.st-api-manager header,.st-api-manager .actions{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
-.st-api-manager header h2{margin:.25rem auto .25rem 0}
-.st-api-manager input,.st-api-manager select,.st-api-manager textarea{font:inherit;max-width:100%;box-sizing:border-box}
-.st-api-manager label.field{display:grid;gap:.3rem;margin:.55rem 0}
-.st-api-manager article{border-top:1px solid var(--SmartThemeBorderColor,#999);padding:.65rem 0;overflow-wrap:anywhere}
-.st-api-manager article p,.st-api-manager [role=status]{margin:.35rem 0}
-.st-api-manager fieldset{margin:.65rem 0;border:1px solid var(--SmartThemeBorderColor,#999)}
-.st-api-manager fieldset label{display:block;overflow-wrap:anywhere}
-.st-api-manager details{margin:.75rem 0}
-.st-api-manager .menu_button{min-height:2rem;white-space:normal}
-`);
+  const icon = name => {
+    const element = make('i', 'fa-solid fa-' + name);
+    element.setAttribute('aria-hidden', 'true');
+    return element;
+  };
+  function button(text, click, glyph, iconOnly = false) {
+    const element = make('button', 'menu_button interactable' + (glyph ? ' menu_button_icon' : ''));
+    element.type = 'button';
+    if (glyph) element.append(icon(glyph));
+    if (iconOnly) {
+      element.title = text;
+      element.setAttribute('aria-label', text);
+    } else element.append(make('span', '', text));
+    if (click) element.addEventListener('click', click);
+    return element;
+  }
+  const fieldInput = (value, label, options = {}) => {
+    const element = make('input', 'text_pole wide100p');
+    Object.assign(element, { value, autocomplete: 'off', ...options });
+    element.setAttribute('aria-label', label);
+    return element;
+  };
+  const closeButton = (popup, label = '关闭') => button(label, () => popup.dialog.close(), 'times');
+  const style = make('style', '', catalogPanelCss);
   doc.head.append(style);
-  doc.body.append(dialog);
-  let filter = '';
-  let search = '';
   let busy = false;
-
-  function message(text) { status.textContent = text; }
-  function title(text, back) {
-    heading.replaceChildren(node('h2', text), button(back ? '返回' : '关闭', () => {
-      if (busy) return;
-      if (back) { message(''); list(); }
-      else dialog.close();
-    }));
+  function popup(title, size = 'medium', main = false) {
+    const dialog = make('dialog', 'st-api-manager popup popup_type textAlignJustify st-orb-popup st-api-manager-native-dialog wide_dialogue_popup st-api-manager-native-dialog--' + size);
+    dialog.setAttribute('aria-label', title);
+    if (!main) dialog.dataset.nested = '';
+    const frame = make('div', 'popup-body');
+    const content = make('div', 'popup-content');
+    const heading = main ? make('div', 'api-manager-modal-toolbar-target') : make('h3', 'popup-header', title);
+    const scroll = make('div', 'popup-scroll-content');
+    const footer = make('div', 'popup-controls');
+    const status = make('div');
+    status.setAttribute('role', 'status');
+    content.append(heading, scroll);
+    frame.append(content, status, footer);
+    dialog.append(frame);
+    dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+    dialog.addEventListener('close', () => {
+      if (!main) dialog.remove();
+    });
+    doc.body.append(dialog);
+    return {
+      dialog, heading, scroll, footer, status,
+      open() { dialog.showModal(); },
+    };
   }
-  function actions(...children) {
-    const element = node('div', undefined, { class: 'actions' });
-    element.append(...children);
-    return element;
-  }
-  function field(form, label, control) {
-    const wrapper = node('label', label, { class: 'field' });
-    wrapper.append(control);
-    form.append(wrapper);
-    return control;
-  }
-  function input(value = '', attributes = {}) {
-    const element = node('input', undefined, { class: 'text_pole', autocomplete: 'off', ...attributes });
-    element.value = value;
-    return element;
-  }
-  function select(options, value) {
-    const element = node('select');
-    for (const [id, name] of options) element.append(node('option', name, { value: id }));
-    element.value = value;
-    return element;
-  }
-  async function run(action, success, done = list) {
+  async function run(pane, action, success, done) {
     if (busy) return;
     busy = true;
-    const controls = [...dialog.querySelectorAll('button,input,select,textarea')].filter(item => !item.disabled);
-    for (const item of controls) item.disabled = true;
+    const controls = [...pane.dialog.querySelectorAll('button,input,select,textarea')].filter(item => !item.disabled);
+    for (const control of controls) control.disabled = true;
     try {
       const result = await action();
-      message(success ?? result);
-      done();
+      pane.status.textContent = success ?? result ?? '';
+      done?.();
     } catch (error) {
-      message(error.message || '操作失败，原有配置已保留。');
+      pane.status.textContent = error.message || '操作失败，原有配置已保留。';
     } finally {
+      for (const control of controls) control.disabled = false;
       busy = false;
-      for (const item of controls) item.disabled = false;
     }
   }
-  const update = change => storage.update(change);
-
-  function list() {
+  const main = popup('API 管理器', 'large', true);
+  main.footer.append(closeButton(main));
+  const categoryFilter = new Set();
+  const siteFilter = new Set();
+  const collapsed = new Set();
+  const unassigned = Symbol('uncategorized');
+  const siteId = row => JSON.stringify([row.site, row.source, row.url]);
+  const rowTitle = row => row.name || (row.model ? '[' + row.site + '] ' + row.model : row.site);
+  const groupColor = group => /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#3b82f6';
+  function sites() {
+    const result = new Map();
+    for (const row of storage.catalog.entries) {
+      const id = siteId(row);
+      if (!result.has(id)) result.set(id, []);
+      result.get(id).push(row);
+    }
+    return result;
+  }
+  function save(pane, change, message, done = refresh) {
+    return run(pane, () => storage.update(change), message, done);
+  }
+  function deleteRows(pane, rows, message, done = refresh) {
+    if (!host.confirm(message)) return;
+    const ids = new Set(rows.map(row => row.id));
+    return save(pane, catalog => ({ ...catalog, entries: catalog.entries.filter(row => !ids.has(row.id)) }),
+      '已删除配置。', done);
+  }
+  function rowNode(row, group, keyNumber) {
+    const card = make('div', 'secretKeyManagerItem');
+    card.dataset.entryId = row.id;
+    const info = make('div', 'secretKeyManagerItemInfo');
+    const header = make('div', 'secretKeyManagerItemHeader');
+    const name = make('strong', 'config-name', rowTitle(row));
+    name.title = row.model;
+    header.append(name);
+    if (keyNumber) header.append(make('small', 'group-count', 'Key ' + keyNumber));
+    if (connection.activeRowId() === row.id) {
+      card.classList.add('secretKeyManagerItem--applied');
+      header.append(make('span', 'active-badge-sm', '已应用'));
+    }
+    info.append(header);
+    const controls = make('div', 'secretKeyManagerItemActions');
+    const actions = make('div', 'secretKeyManagerItemActionsRow');
+    actions.append(
+      button('应用', () => run(main, () => connection.apply(row), undefined, refresh), 'check', true),
+      button('编辑', () => edit([row]), 'pen-to-square', true),
+      button('管理分组', () => rowGroups(row), 'tag', true),
+    );
+    if (group) actions.append(button('移出标签分组', () => {
+      save(main, catalog => ({
+        ...catalog, entries: catalog.entries.map(entry => entry.id === row.id
+          ? { ...entry, groupIds: entry.groupIds.filter(id => id !== group.id) } : entry),
+      }), '已移出标签分组。');
+    }, 'xmark', true));
+    actions.append(button('删除', () => deleteRows(main, [row], '删除这一条配置？'), 'trash', true));
+    controls.append(actions);
+    card.append(info, controls);
+    return card;
+  }
+  function refresh() {
     const { groups, entries } = storage.catalog;
-    if (!['', ':unassigned'].includes(filter) && !groups.some(group => group.id === filter)) filter = '';
-    title('API 管理器');
-    const file = node('input', undefined, { type: 'file', accept: '.json,application/json', hidden: '' });
-    file.addEventListener('change', () => {
+    const availableSites = sites();
+    const keyNumbers = new Map();
+    for (const rows of availableSites.values()) {
+      const keys = [...new Set(rows.map(row => row.key))];
+      const models = new Map();
+      for (const row of rows) {
+        if (!models.has(row.model)) models.set(row.model, new Set());
+        models.get(row.model).add(row.key);
+      }
+      for (const row of rows) {
+        if (models.get(row.model).size > 1) keyNumbers.set(row.id, keys.indexOf(row.key) + 1);
+      }
+    }
+    for (const id of siteFilter) if (!availableSites.has(id)) siteFilter.delete(id);
+    for (const id of categoryFilter) if (id !== unassigned && !groups.some(group => group.id === id)) categoryFilter.delete(id);
+    const toolbar = make('div', 'api-manager-toolbar');
+    const left = make('div', 'toolbar-left');
+    const version = make('span', 'toolbar-version', catalogPanelVersion);
+    version.setAttribute('aria-label', '当前版本');
+    left.append(button('API 管理', manager, 'layer-group'), button('标签设置', tagSettings, 'tags'), version);
+    const right = make('div', 'toolbar-right');
+    const filter = button('筛选', filters, 'filter');
+    filter.setAttribute('aria-label', '筛选');
+    const count = categoryFilter.size + siteFilter.size;
+    if (count) filter.append(make('span', 'filter-badge', String(count)));
+    right.append(filter, button('检测', detection, 'bolt'), button('数据', dataPanel, 'database'));
+    toolbar.append(left, right);
+    main.heading.replaceChildren(toolbar);
+    const panel = make('div', 'api-manager-panel');
+    const list = make('div', 'api-config-list');
+    panel.append(list);
+    const matches = entries.filter(row => !siteFilter.size || siteFilter.has(siteId(row)));
+    const sections = [{ id: unassigned, name: '未分类' }, ...groups];
+    for (const section of sections) {
+      const isUnassigned = section.id === unassigned;
+      if (categoryFilter.size && !categoryFilter.has(section.id)) continue;
+      const rows = matches.filter(row => isUnassigned ? !row.groupIds.length : row.groupIds.includes(section.id));
+      if (!rows.length && isUnassigned) continue;
+      const drawer = make('details', 'inline-drawer');
+      drawer.open = !collapsed.has(section.id);
+      const header = make('summary', 'inline-drawer-toggle inline-drawer-header');
+      const label = make('span', 'flex-container alignItemsCenter');
+      const name = make('b', '', section.name);
+      if (!isUnassigned) name.style.color = groupColor(section);
+      label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
+      const arrow = icon(drawer.open ? 'circle-chevron-up' : 'circle-chevron-down');
+      arrow.classList.add('inline-drawer-icon');
+      header.append(label, arrow);
+      drawer.addEventListener('toggle', () => {
+        if (drawer.open) collapsed.delete(section.id);
+        else collapsed.add(section.id);
+        arrow.classList.toggle('fa-circle-chevron-up', drawer.open);
+        arrow.classList.toggle('fa-circle-chevron-down', !drawer.open);
+      });
+      const wrap = make('div', 'inline-drawer-content');
+      const cards = make('div', 'secretKeyManagerList');
+      if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, keyNumbers.get(row.id))));
+      else cards.append(make('p', 'st-orb-empty-state', '此标签暂无配置'));
+      wrap.append(cards);
+      drawer.append(header, wrap);
+      list.append(drawer);
+    }
+    if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '没有匹配的配置'));
+    main.scroll.replaceChildren(panel);
+  }
+  function manager() {
+    const pane = popup('API 管理');
+    const wrap = make('div', 'config-group-manager');
+    const list = make('div', 'group-list');
+    function render() {
+      list.replaceChildren();
+      for (const rows of sites().values()) {
+        const row = rows[0];
+        const item = make('div', 'group-list-item');
+        const info = make('div', 'group-info');
+        const head = make('div', 'group-header');
+        const details = make('div', 'group-details');
+        head.append(make('span', 'group-name', row.site),
+          make('span', 'group-count', new Set(rows.map(entry => entry.model).filter(Boolean)).size + ' 个模型'));
+        const url = make('span', 'group-url', row.url || row.source);
+        url.title = row.url;
+        details.append(url, make('span', 'group-keys', new Set(rows.map(entry => entry.key).filter(Boolean)).size + ' 个密钥'));
+        info.append(head, details);
+        const actions = make('div', 'group-actions');
+        actions.append(
+          button('编辑此组的端点、密钥和模型', () => edit(rows, render), 'pen', true),
+          button('删除此组的所有模型配置', () => deleteRows(pane, rows, '删除此配置组的所有模型配置？', () => { render(); refresh(); }), 'trash', true),
+        );
+        item.append(info, actions);
+        list.append(item);
+      }
+      if (!list.childElementCount) list.append(make('p', 'group-list-empty', '暂无 API 配置'));
+    }
+    render();
+    wrap.append(list);
+    pane.scroll.append(wrap);
+    pane.footer.append(button('添加配置', () => edit([], render), 'plus'), closeButton(pane));
+    pane.open();
+  }
+  const edit = (rows, afterSave) => openCatalogEditor({
+    host, storage, popup, make, button, fieldInput, closeButton, save, run, refresh, groupColor,
+  }, rows, afterSave);
+
+  function filters() {
+    const pane = popup('筛选');
+    const wrap = make('div', 'category-popup-modal filter-modal');
+    const { entries, groups } = storage.catalog;
+    const selections = [categoryFilter, siteFilter];
+    const controls = [];
+    const header = make('div', 'category-popup-header');
+    header.append(make('span', 'category-popup-title', '筛选标签和配置组'), button('清空', () => {
+      for (const selection of selections) selection.clear();
+      for (const control of controls) control.checked = false;
+      refresh();
+    }, 'eraser'));
+    wrap.append(header);
+    const sections = [
+      ['标签', [{ id: unassigned, name: '未分类', count: entries.filter(row => !row.groupIds.length).length },
+        ...groups.map(group => ({ ...group, count: entries.filter(row => row.groupIds.includes(group.id)).length }))]],
+      ['配置组', [...sites()].map(([id, rows]) => ({ id, name: rows[0].site, count: rows.length }))],
+    ];
+    sections.forEach(([name, options], index) => {
+      const section = make('section', 'category-popup-section');
+      const header = make('div', 'category-popup-section__header');
+      const inputs = [];
+      const selected = selections[index];
+      const selectAll = value => {
+        for (const [id, control] of inputs) {
+          control.checked = value;
+          if (value) selected.add(id);
+          else selected.delete(id);
+        }
+        refresh();
+      };
+      header.append(make('strong', 'category-popup-section__title', name),
+        button('全选', () => selectAll(true)));
+      const list = make('div', 'category-popup-options');
+      for (const option of options) {
+        const label = make('label', 'category-popup-option filter-option-item');
+        const input = make('input');
+        input.type = 'checkbox';
+        input.checked = selected.has(option.id);
+        input.addEventListener('change', () => {
+          if (input.checked) selected.add(option.id);
+          else selected.delete(option.id);
+          refresh();
+        });
+        inputs.push([option.id, input]);
+        controls.push(input);
+        label.append(input, make('span', '', option.name), make('small', 'category-popup-option__count', String(option.count)));
+        list.append(label);
+      }
+      section.append(header, list);
+      wrap.append(section);
+    });
+    pane.scroll.append(wrap);
+    pane.footer.append(closeButton(pane));
+    pane.open();
+  }
+  function tagOption(group, input, extras = []) {
+    const tag = make('span', 'category-tag menu_button menu_button_icon');
+    const label = make('label', 'catalog-tag-label');
+    const dot = make('span', 'category-color-dot');
+    dot.style.backgroundColor = groupColor(group);
+    label.append(input, dot, make('span', 'category-tag-name', group.name));
+    tag.append(label, ...extras);
+    return tag;
+  }
+  function rowGroups(row) {
+    const pane = popup('管理分组');
+    const wrap = make('div', 'set-category-modal');
+    wrap.append(make('div', 'set-category-target', rowTitle(row)));
+    const grid = make('div', 'category-tag-grid');
+    const inputs = storage.catalog.groups.map(group => {
+      const control = make('input');
+      control.type = 'checkbox';
+      control.checked = row.groupIds.includes(group.id);
+      grid.append(tagOption(group, control));
+      return [group.id, control];
+    });
+    if (!inputs.length) grid.append(make('p', 'category-tag-grid__empty', '可在「标签设置」创建标签'));
+    wrap.append(grid);
+    pane.scroll.append(wrap);
+    pane.footer.append(button('清空', () => { for (const [, input] of inputs) input.checked = false; }),
+      closeButton(pane, '取消'), button('保存', () => save(pane, catalog => ({
+        ...catalog, entries: catalog.entries.map(entry => entry.id === row.id ? {
+          ...entry, groupIds: inputs.filter(([, input]) => input.checked).map(([id]) => id),
+        } : entry),
+      }), '已保存标签。', () => { refresh(); pane.dialog.close(); }), 'check'));
+    pane.open();
+  }
+  function tagSettings() {
+    const pane = popup('标签设置');
+    const wrap = make('div', 'batch-category-modal');
+    const selectedRows = new Set();
+    const selectedTags = new Set();
+    let onlyUnassigned = false;
+    const search = fieldInput('', '搜索配置名称或模型', { type: 'search', placeholder: '搜索配置名称或模型...' });
+    search.classList.add('search-input');
+    const searchSection = make('div', 'search-section');
+    searchSection.append(search);
+    const toolbar = make('div', 'selection-toolbar');
+    const list = make('div', 'config-list');
+    const count = make('span', 'selection-count');
+    const selectList = button('选择当前列表', () => {
+      const rows = visibleRows();
+      const allSelected = rows.every(row => selectedRows.has(row.id));
+      for (const row of rows) if (allSelected) selectedRows.delete(row.id); else selectedRows.add(row.id);
+      renderRows();
+    });
+    selectList.className = 'selection-action selection-action--primary';
+    const unassignedButton = button('未分类', () => {
+      onlyUnassigned = !onlyUnassigned;
+      unassignedButton.classList.toggle('active', onlyUnassigned);
+      unassignedButton.setAttribute('aria-pressed', String(onlyUnassigned));
+      renderRows();
+    });
+    unassignedButton.className = 'selection-action';
+    const clearRows = button('取消选择', () => { selectedRows.clear(); renderRows(); });
+    clearRows.className = 'selection-action';
+    toolbar.append(selectList, unassignedButton, clearRows, count);
+    function visibleRows() {
+      const query = search.value.trim().toLowerCase();
+      return storage.catalog.entries.filter(row => (!onlyUnassigned || !row.groupIds.length) &&
+        [rowTitle(row), row.model, row.site].some(value => value.toLowerCase().includes(query)));
+    }
+    const addTags = button('添加标签', () => changeTags('add'), 'plus');
+    const removeTags = button('移除标签', () => changeTags('remove'), 'minus');
+    const clearTags = button('清空标签', () => {
+      if (host.confirm('清空所选配置的标签？')) changeTags('clear');
+    }, 'eraser');
+    function setCount() {
+      count.textContent = '已选中 ' + selectedRows.size + ' / ' + storage.catalog.entries.length + ' 个';
+      addTags.disabled = removeTags.disabled = !selectedRows.size || !selectedTags.size;
+      clearTags.disabled = !selectedRows.size;
+    }
+    function renderRows() {
+      list.replaceChildren();
+      for (const row of visibleRows()) {
+        const label = make('label', 'config-item');
+        const control = make('input', 'config-checkbox');
+        control.type = 'checkbox';
+        control.checked = selectedRows.has(row.id);
+        label.classList.toggle('selected', control.checked);
+        control.addEventListener('change', () => {
+          if (control.checked) selectedRows.add(row.id);
+          else selectedRows.delete(row.id);
+          label.classList.toggle('selected', control.checked);
+          setCount();
+        });
+        label.append(control, make('span', 'config-info config-name', rowTitle(row)));
+        list.append(label);
+      }
+      if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '没有匹配的配置'));
+      setCount();
+    }
+    search.addEventListener('input', renderRows);
+    function changeTags(mode) {
+      save(pane, catalog => ({
+        ...catalog, entries: catalog.entries.map(row => {
+          if (!selectedRows.has(row.id)) return row;
+          const groupIds = mode === 'clear' ? [] : mode === 'add'
+            ? labels([...row.groupIds, ...selectedTags]) : row.groupIds.filter(id => !selectedTags.has(id));
+          return { ...row, groupIds };
+        }),
+      }), '已更新所选配置的标签。', () => { refresh(); renderRows(); });
+    }
+    const tagPanel = make('section', 'category-action-panel');
+    const heading = make('div', 'category-action-panel__header');
+    heading.append(make('span', 'category-action-panel__title', '管理标签'));
+    const form = make('form', 'new-category-row');
+    const name = fieldInput('', '新分组名称', { placeholder: '输入分类名称（如：Claude、GPT、本地模型）', required: true });
+    name.classList.add('new-category-input');
+    const color = fieldInput('#3b82f6', '选择颜色', { type: 'color' });
+    color.className = 'color-picker';
+    const add = button('新建分类', undefined, 'plus', true);
+    add.type = 'submit';
+    form.append(name, color, add);
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const value = name.value.trim();
+      if (!value) return;
+      save(pane, catalog => ({
+        ...catalog, groups: [...catalog.groups, { id: makeId(), name: value, color: color.value }],
+      }), '已创建分组。', () => { name.value = ''; renderTags(); refresh(); });
+    });
+    const grid = make('div', 'category-tag-grid');
+    function renderTags() {
+      grid.replaceChildren();
+      for (const group of storage.catalog.groups) {
+        const control = make('input');
+        control.type = 'checkbox';
+        control.checked = selectedTags.has(group.id);
+        control.addEventListener('change', () => {
+          if (control.checked) selectedTags.add(group.id);
+          else selectedTags.delete(group.id);
+          setCount();
+        });
+        const rename = button('重命名或改色', () => editTag(group), 'pen', true);
+        const remove = button('删除标签', () => {
+          if (!host.confirm('删除这个标签？其中的配置会保留。')) return;
+          save(pane, catalog => ({
+            ...catalog, groups: catalog.groups.filter(item => item.id !== group.id),
+            entries: catalog.entries.map(row => ({ ...row, groupIds: row.groupIds.filter(id => id !== group.id) })),
+          }), '已删除分组。', () => { selectedTags.delete(group.id); renderTags(); renderRows(); refresh(); });
+        }, 'trash', true);
+        rename.classList.add('category-tag-delete');
+        remove.classList.add('category-tag-delete');
+        grid.append(tagOption(group, control, [rename, remove]));
+      }
+      if (!grid.childElementCount) grid.append(make('p', 'category-tag-grid__empty', '暂无标签'));
+      setCount();
+    }
+    function editTag(group) {
+      const child = popup('编辑标签');
+      const name = fieldInput(group.name, '标签名称');
+      const color = fieldInput(groupColor(group), '选择颜色', { type: 'color' });
+      const row = make('div', 'new-category-row');
+      row.append(name, color);
+      child.scroll.append(row);
+      child.footer.append(closeButton(child, '取消'), button('保存', () => {
+        const value = name.value.trim();
+        if (!value) return;
+        save(child, catalog => ({
+          ...catalog, groups: catalog.groups.map(item => item.id === group.id ? { ...item, name: value, color: color.value } : item),
+        }), '已保存标签。', () => { renderTags(); refresh(); child.dialog.close(); });
+      }, 'check'));
+      child.open();
+    }
+    const clearSelectedTags = button('清空', () => { selectedTags.clear(); renderTags(); }, 'eraser');
+    tagPanel.append(heading, form, clearSelectedTags, grid);
+    wrap.append(searchSection, toolbar, list, tagPanel);
+    pane.scroll.append(wrap);
+    pane.footer.append(closeButton(pane, '取消'), addTags, removeTags, clearTags);
+    renderRows();
+    renderTags();
+    pane.open();
+  }
+
+  function dataPanel() {
+    const pane = popup('数据', 'small');
+    const wrap = make('div', 'data-actions-modal');
+    const file = fieldInput('', '导入配置文件', { type: 'file', accept: '.json,application/json' });
+    file.className = 'data-actions-file-input';
+    file.addEventListener('change', async () => {
       const selected = file.files[0];
       file.value = '';
       if (!selected) return;
-      run(async () => {
-        let decoded;
+      let decoded;
+      await run(pane, async () => {
         try { decoded = readCatalog(JSON.parse(await selected.text())); } catch { throw formatError(); }
-        await update(local => mergeCatalogs(local, decoded.catalog, decoded.legacy));
-      }, '已合并导入配置。');
-    });
-    const pull = button('从账户读取', () => run(() => storage.pull()));
-    const push = button('同步到账户', () => run(() => storage.push()));
-    pull.disabled = push.disabled = !storage.canSync;
-    const toolbar = actions(
-      button('新增配置', () => editor()), button('管理分组', groupsPanel),
-      button('导入', () => file.click()), button('导出', download), pull, push,
-    );
-    body.replaceChildren(toolbar, file);
-    if (!storage.canSync) body.append(node('p', '当前酒馆未提供账户存储，可通过文件导入和导出。'));
-    const groupOptions = [['', '全部分组'], [':unassigned', '未分组'], ...groups.map(group => [group.id, group.name])];
-    const groupFilter = select(groupOptions, filter);
-    groupFilter.setAttribute('aria-label', '按分组筛选');
-    const query = input(search, { type: 'search', placeholder: '搜索站点、模型或分组', 'aria-label': '搜索配置' });
-    const cards = node('div', undefined, { class: 'entries' });
-    groupFilter.addEventListener('change', () => { filter = groupFilter.value; renderRows(); });
-    query.addEventListener('input', () => { search = query.value; renderRows(); });
-    body.append(actions(groupFilter, query), cards);
-    function renderRows() {
-      cards.replaceChildren();
-      for (const row of entries) {
-        const names = groups.filter(group => row.groupIds.includes(group.id)).map(group => group.name);
-        if (filter === ':unassigned' ? row.groupIds.length > 0 : filter && !row.groupIds.includes(filter)) continue;
-        if (![row.site, row.name, row.source, row.model, ...names].join(' ').toLowerCase().includes(search.trim().toLowerCase())) continue;
-        const card = node('article', undefined, { 'data-entry-id': row.id });
-        card.append(
-          node('strong', row.model || '未指定模型'),
-          node('p', [row.site, row.name, row.source].filter(Boolean).join(' · ')),
-          node('p', (row.key ? '已保存密钥' : '未填写密钥') + ' · ' + (names.join('、') || '未分组')),
-          actions(button('编辑', () => editor(row)), button('删除', () => {
-            if (host.confirm('删除这一条配置？')) run(() => update(catalog => ({
-              ...catalog, entries: catalog.entries.filter(entry => entry.id !== row.id),
-            })), '已删除配置。');
-          })),
-        );
-        cards.append(card);
+      });
+      if (!decoded) return;
+      const child = popup('导入方式', 'small');
+      const options = make('div', 'import-mode-modal import-mode-options');
+      options.append(make('p', '', '选择如何将文件中的配置导入目录'));
+      for (const [label, detail, replace] of [
+        ['合并导入', '保留本机配置并合并文件中的条目', false],
+        ['替换导入', '使用导入文件中的配置和标签替换本机目录', true],
+      ]) {
+        const choice = button(label, () => {
+          if (replace && !host.confirm('用导入文件替换本机目录？')) return;
+          save(child, catalog => replace ? decoded.catalog : mergeCatalogs(catalog, decoded.catalog, decoded.legacy),
+            undefined, () => {
+              pane.status.textContent = replace ? '已替换导入配置。' : '已合并导入配置。';
+              refresh();
+              child.dialog.close();
+            });
+        });
+        choice.classList.add('import-mode-option');
+        choice.append(make('small', '', detail));
+        options.append(choice);
       }
-      if (!cards.childElementCount) cards.append(node('p', '没有匹配的配置。'));
+      child.scroll.append(options);
+      child.footer.append(closeButton(child, '取消'));
+      child.open();
+    });
+    const download = () => {
+      const blob = new Blob([JSON.stringify(storage.catalog, null, 2)], { type: 'application/json' });
+      const href = URL.createObjectURL(blob);
+      const link = make('a');
+      link.href = href;
+      link.download = 'st-api-manager-configs.json';
+      pane.dialog.append(link);
+      link.click();
+      link.remove();
+      host.setTimeout(() => URL.revokeObjectURL(href), 1000);
+      pane.status.textContent = '已导出配置，文件包含密钥。';
+    };
+    const clear = () => {
+      if (!host.confirm('清空本机所有配置？标签会保留。')) return;
+      save(pane, catalog => ({ ...catalog, entries: [] }), '已清空配置。');
+    };
+    const sync = make('div', 'data-actions-sync');
+    const state = make('div', 'data-actions-sync__status');
+    const time = make('div', 'data-actions-sync__time');
+    function syncStatus() {
+      const info = storage.syncInfo;
+      state.textContent = !storage.canSync ? '账户同步：当前宿主不可用'
+        : info.pending ? '账户同步：有本机改动待同步' : info.revision ? '账户同步：已同步' : '账户同步：尚未同步';
+      time.textContent = info.syncedAt ? '上次同步：' + new Date(info.syncedAt).toLocaleString() : '上次同步：—';
+      refresh();
     }
-    renderRows();
+    const controls = make('div', 'data-actions-sync__controls');
+    async function synchronize(direction) {
+      let result;
+      await run(pane, async () => {
+        result = await storage[direction]();
+        return typeof result === 'string' ? result : undefined;
+      }, undefined, syncStatus);
+      if (!result?.resolve) return;
+
+      const child = popup('账户同步冲突');
+      const body = make('div', 'sync-conflict-modal');
+      const summary = make('div', 'sync-conflict-modal__summary');
+      for (const [label, counts] of [['本机', result.local], ['账户', result.account]]) {
+        summary.append(make('div', '', label + '：' + counts.entries + ' 个配置，' + counts.groups + ' 个标签'));
+      }
+      body.append(make('p', '', '本机与账户数据存在差异。使用账户数据会替换本机目录，使用本机数据会覆盖账户目录，合并会将结果保存到两端。'), summary);
+      const colorChoices = new Map();
+      if (result.colors.length) {
+        const colors = make('div', 'sync-conflict-modal__colors');
+        colors.append(make('p', '', '合并时使用以下标签颜色。'));
+        for (const [index, conflict] of result.colors.entries()) {
+          const row = make('div', 'sync-conflict-modal__color-row');
+          row.append(make('span', '', conflict.name));
+          for (const [side, label, color] of [
+            ['local', '本机颜色', conflict.localColor], ['account', '账户颜色', conflict.accountColor],
+          ]) {
+            const option = make('label');
+            const input = make('input');
+            input.type = 'radio';
+            input.name = 'sync-color-' + index;
+            input.checked = side === 'local';
+            input.addEventListener('change', () => colorChoices.set(conflict.accountId, side));
+            const sample = make('span', 'category-color-dot');
+            sample.style.backgroundColor = groupColor({ color });
+            sample.setAttribute('aria-hidden', 'true');
+            option.append(input, sample, make('span', '', label));
+            row.append(option);
+          }
+          colors.append(row);
+        }
+        body.append(colors);
+      }
+      child.scroll.append(body);
+      child.footer.append(closeButton(child, '取消'));
+      for (const [choice, label, glyph] of [
+        ['account', '使用账户数据', 'cloud-arrow-down'], ['local', '使用本机数据', 'laptop'], ['merge', '合并', 'code-merge'],
+      ]) {
+        child.footer.append(button(label, () => run(child, async () => {
+          const message = await result.resolve(choice, colorChoices);
+          pane.status.textContent = message;
+        }, undefined, () => {
+          syncStatus();
+          child.dialog.close();
+        }), glyph));
+      }
+      child.open();
+    }
+    const pull = button('从账户同步', () => synchronize('pull'), 'cloud-arrow-down');
+    const push = button('同步到账户', () => synchronize('push'), 'cloud-arrow-up');
+    pull.disabled = push.disabled = !storage.canSync;
+    controls.append(pull, push);
+    sync.append(state, time, controls);
+    wrap.append(button('导出', download, 'file-export'), button('导入', () => file.click(), 'file-import'),
+      button('清空配置', clear, 'trash-can'), file, sync);
+    pane.scroll.append(wrap);
+    pane.footer.append(closeButton(pane));
+    syncStatus();
+    pane.open();
   }
 
-  function editor(existing) {
-    const row = existing ?? { site: '', name: '', source: 'custom', url: '', key: '', model: '', groupIds: [] };
-    title(existing ? '编辑配置' : '新增配置', true);
-    message('');
-    const form = node('form');
-    const site = field(form, '站点名称', input(row.site, { required: '' }));
-    const name = field(form, '条目备注（可选）', input(row.name));
-    const sources = [['custom', '自定义（OpenAI 兼容）'], ['openai', 'OpenAI'], ['deepseek', 'DeepSeek'], ['makersuite', 'Google AI Studio']];
-    if (!sources.some(([id]) => id === row.source)) sources.push([row.source, row.source]);
-    const source = field(form, '来源', select(sources, row.source));
-    const url = field(form, '站点 URL', input(row.url, { spellcheck: 'false', inputmode: 'url' }));
-    const key = field(form, 'API 密钥', input(row.key, { type: 'password', spellcheck: 'false' }));
-    const reveal = button('显示密钥', () => {
-      const hidden = key.type === 'password';
-      key.type = hidden ? 'text' : 'password';
-      reveal.textContent = hidden ? '隐藏密钥' : '显示密钥';
+  function detection() {
+    const pane = popup('检测');
+    const list = make('div', 'secretKeyManagerList');
+    const rows = storage.catalog.entries;
+    const hints = make('p', 'st-native-hint', '检测站点的模型列表及记录中的模型 ID。结果供核对，配置会保留。');
+    pane.scroll.append(hints, list);
+    pane.footer.append(closeButton(pane));
+    pane.open();
+    run(pane, async () => {
+      const requests = new Map();
+      for (const row of rows) {
+        const id = JSON.stringify([row.source, row.url, row.key]);
+        if (!requests.has(id)) {
+          requests.set(id, discoverModels(row, host.fetch.bind(host)).then(models => ({ models }), error => ({ error })));
+        }
+        const { models, error } = await requests.get(id);
+        const result = error ? error.message : row.model && !models.includes(row.model) ? '列表中未找到此模型' : '模型列表可读取';
+        list.append(make('div', 'secretKeyManagerItem', rowTitle(row) + ' · ' + result));
+      }
+      return rows.length ? '已检测 ' + rows.length + ' 条配置。' : '暂无配置。';
     });
-    const modelInput = existing ? input(row.model) : node('textarea', undefined, { class: 'text_pole', rows: '3' });
-    const model = field(form, existing ? '模型' : '模型（每行一个，可留空）', modelInput);
-    const draft = () => ({
-      source: source.value, url: existing && url.value === row.url ? row.url : url.value.trim(),
-      key: key.value,
-    });
-    const suggestions = select([['', '可选择拉取到的模型']], '');
-    suggestions.setAttribute('aria-label', '拉取到的模型');
-    suggestions.hidden = true;
-    for (const control of [source, url, key]) control.addEventListener('input', () => { suggestions.hidden = true; });
-    suggestions.addEventListener('change', () => {
-      if (!suggestions.value) return;
-      model.value = existing ? suggestions.value : labels([...model.value.split(/\r?\n/).map(value => value.trim()), suggestions.value]).join('\n');
-      suggestions.value = '';
-    });
-    const pull = button('拉取模型', () => run(async () => {
-      suggestions.hidden = true;
-      const models = await discoverModels(draft(), host.fetch.bind(host));
-      suggestions.replaceChildren(node('option', '可选择拉取到的模型', { value: '' }),
-        ...models.map(value => node('option', value, { value })));
-      suggestions.hidden = models.length === 0;
-      return models.length ? '已拉取 ' + models.length + ' 个模型，选择后再保存。' : '站点没有返回模型，可以手动填写。';
-    }, undefined, () => {}));
-    form.append(actions(reveal, pull, suggestions));
-    const groupBox = node('fieldset');
-    groupBox.append(node('legend', '分组（可多选）'));
-    const checkboxes = storage.catalog.groups.map(group => {
-      const label = node('label');
-      const control = input(group.id, { type: 'checkbox' });
-      control.checked = row.groupIds.includes(group.id);
-      label.append(control, doc.createTextNode(' ' + group.name));
-      groupBox.append(label);
-      return control;
-    });
-    if (!checkboxes.length) groupBox.append(node('span', '可先在「管理分组」中创建分组。'));
-    if (row.history) {
-      const history = node('details');
-      history.append(node('summary', '旧密钥池记录'), node('p',
-        '原密钥位置：' + (row.history.index + 1) + ' / ' + row.history.poolSize +
-        '；历史成功：' + (row.history.keyHistory?.successCount ?? '—') +
-        '；历史失败：' + (row.history.keyHistory?.failureCount ?? '—')));
-      form.append(history);
-    }
-    form.append(groupBox, node('button', '保存配置', { type: 'submit', class: 'menu_button' }));
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      run(() => {
-        const fields = draft();
-        if ((!existing || fields.url !== row.url || fields.source !== row.source) &&
-            (fields.url || fields.source === 'custom')) endpointUrl(fields.url);
-        if (!site.value.trim()) throw new Error('请填写站点名称。');
-        const models = existing ? [model.value === row.model ? row.model : model.value.trim()]
-          : labels(model.value.split(/\r?\n/).map(value => value.trim()));
-        const groupIds = checkboxes.filter(control => control.checked).map(control => control.value);
-        const rows = (models.length ? models : ['']).map(value => ({
-          ...row, ...fields, id: existing?.id ?? makeId(), site: site.value.trim(),
-          name: name.value.trim(), model: value, groupIds,
-        }));
-        return update(catalog => ({
-          ...catalog,
-          entries: existing ? catalog.entries.map(entry => entry.id === existing.id ? rows[0] : entry) : [...catalog.entries, ...rows],
-        }));
-      }, '已保存配置。');
-    });
-    body.replaceChildren(form);
-    site.focus();
   }
-
-  function groupsPanel() {
-    title('管理分组', true);
-    const form = node('form');
-    const name = field(form, '新分组名称', input('', { required: '' }));
-    form.append(node('button', '创建分组', { type: 'submit', class: 'menu_button' }));
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      run(() => {
-        if (!name.value.trim()) throw new Error('请填写分组名称。');
-        return update(catalog => ({
-          ...catalog, groups: [...catalog.groups, { id: makeId(), name: name.value.trim() }],
-        }));
-      }, '已创建分组。', groupsPanel);
-    });
-    body.replaceChildren(form);
-    for (const group of storage.catalog.groups) {
-      const label = input(group.name, { 'aria-label': '分组名称：' + group.name });
-      body.append(actions(label, button('保存名称', () => run(() => {
-        if (!label.value.trim()) throw new Error('请填写分组名称。');
-        return update(catalog => ({
-          ...catalog, groups: catalog.groups.map(item => item.id === group.id ? { ...item, name: label.value.trim() } : item),
-        }));
-      }, '已保存分组。', groupsPanel)), button('删除分组', () => {
-        if (host.confirm('删除这个分组？其中的配置会保留。')) run(() => update(catalog => ({
-          ...catalog, groups: catalog.groups.filter(item => item.id !== group.id),
-          entries: catalog.entries.map(row => ({ ...row, groupIds: row.groupIds.filter(id => id !== group.id) })),
-        })), '已删除分组。', groupsPanel);
-      })));
-    }
-  }
-
-  function download() {
-    const blob = new Blob([JSON.stringify(storage.catalog, null, 2)], { type: 'application/json' });
-    const href = URL.createObjectURL(blob);
-    const link = node('a', undefined, { href, download: 'st-api-manager-configs.json' });
-    dialog.append(link);
-    link.click();
-    link.remove();
-    host.setTimeout(() => URL.revokeObjectURL(href), 1000);
-    message('已导出配置，文件包含密钥。');
-  }
-  dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
-  dialog.addEventListener('close', () => { if (!dialog.open) body.replaceChildren(); });
   return () => {
-    if (dialog.open) return;
-    message('');
-    list();
-    dialog.showModal();
+    if (main.dialog.open) return;
+    main.status.textContent = '';
+    refresh();
+    main.open();
   };
 }
+

@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
-const { webcrypto } = require('node:crypto');
+const { createHash, webcrypto } = require('node:crypto');
 const { url, categories, config, flatConfigs, legacyValues, grouped } = require('./catalog-fixture.cjs');
 
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -14,8 +14,9 @@ const accountV2 = 'st_api_manager_sync_v2';
 const keyV2 = 'st_api_manager_catalog_v2';
 let api;
 test.before(async () => {
-  const source = ['catalog.js', 'storage.js'].map(file => fs.readFileSync(path.join(root, 'src', file), 'utf8')).join('\n');
-  const context = vm.createContext({ crypto: webcrypto, URL, AbortSignal });
+  const source = ['catalog.js', 'storage.js', 'connection.js'].map(file => fs.readFileSync(path.join(root, 'src', file), 'utf8')).join('\n')
+    + '\nexport { createCatalogConnection, sendCatalogTest };';
+  const context = vm.createContext({ crypto: webcrypto, TextEncoder, URL, AbortSignal });
   const module = new vm.SourceTextModule(source, { context });
   await module.link(() => { throw new Error('Unexpected import'); });
   await module.evaluate();
@@ -67,6 +68,20 @@ test('migrates grouped stores into individual model/key entries without losing h
   assert.equal(catalog.entries[1].history.currentKeyIndex, 1);
   assert.deepEqual(plain(catalog.entries.map(row => row.groupIds)), [['group-a'], ['group-a'], ['group-b'], ['group-b']]);
   assert.deepEqual(plain(catalog.groups), categories);
+  assert.ok(catalog.entries[0].rotationPoolId);
+  assert.equal(new Set(catalog.entries.map(row => row.rotationPoolId)).size, 1, 'old models share the ordered pool');
+});
+
+test('legacy import restores a missing credential to its existing pool without absorbing independent keys', () => {
+  const local = api.migrateCatalog(grouped, categories);
+  const dropped = { ...local, entries: local.entries.filter((_, index) => index !== 1) };
+  const other = api.migrateCatalog([config('fixture-independent')], categories);
+  const withIndependent = api.mergeCatalogs(dropped, other);
+  const restored = api.mergeCatalogs(withIndependent, api.migrateCatalog(grouped, categories), true);
+  const restoredKey = restored.entries.find(row => row.key === 'fixture-key-b' && row.model === 'same-model');
+  assert.equal(restoredKey.rotationPoolId, local.entries[0].rotationPoolId);
+  assert.equal(restored.entries.find(row => row.key === 'fixture-independent').rotationPoolId, undefined);
+  assert.deepEqual(plain(api.mergeCatalogs(restored, api.migrateCatalog(grouped, categories), true)), plain(restored));
 });
 
 test('old flat and export formats preserve same URL/model with different keys and group memberships', () => {
@@ -160,6 +175,76 @@ test('a subset import retains the conflicting group and its membership across ex
 });
 
 for (const mode of ['st', 'tt']) {
+  test(mode + ' resumes a verified legacy active pool in its original order on generation', async () => {
+    const catalog = api.migrateCatalog(grouped, categories);
+    // A deleted credential reimported from a legacy file ends up at the end
+    // of the catalog, but its original key index is still zero.
+    catalog.entries = [...catalog.entries.slice(1), catalog.entries[0]];
+    const modelRows = catalog.entries.filter(row => row.model === 'same-model');
+    const pool = modelRows.map(row => ({
+      id: 'native-' + row.history.index, active: row.history.index === 0,
+      digest: createHash('sha256').update('api_key_custom\0' + row.key).digest('hex'),
+    }));
+    const calls = [];
+    let listener;
+    let state = {};
+    const host = {
+      document: {}, crypto: webcrypto,
+      ...(mode === 'tt' ? { __TAURITAVERN__: {} } : {}),
+      async fetch(path) {
+        calls.push(path);
+        return Response.json({ api_key_custom: pool.map(({ id, active }) => ({ id, active, value: 'masked' })) });
+      },
+    };
+    const context = { eventTypes: { CHAT_COMPLETION_SETTINGS_READY: 'ready' },
+      eventSource: { makeFirst(name, callback) { assert.equal(name, 'ready'); listener = callback; } } };
+    const store = {
+      catalog,
+      legacyBindings: Object.fromEntries(pool.map(({ digest, id }) => [digest, id])),
+      get connectionState() { return state; },
+      async setConnectionState(connection) { state = plain(connection); },
+    };
+    const manager = api.createCatalogConnection(host, context, store);
+    assert.deepEqual(calls, []);
+    await assert.rejects(manager.apply({ ...modelRows[0], model: '' }), /没有模型/);
+    assert.deepEqual(calls, []);
+    const payload = { chat_completion_source: 'custom', custom_url: url, model: 'same-model', secret_id: 'untouched' };
+    await listener({ ...payload, model: 'different-model' });
+    assert.deepEqual(calls, []);
+    await listener(payload);
+    assert.equal(payload.secret_id, 'native-1', 'old cursor 1 selects the second credential despite catalog order');
+    assert.ok(calls.every(path => path === '/api/secrets/read'));
+    assert.equal(pool.find(entry => entry.active).id, 'native-0');
+    api.createCatalogConnection(host, context, store);
+    await listener(payload);
+    assert.equal(payload.secret_id, 'native-0', 'cursor survives restart');
+  });
+
+  test(mode + ' recovers an intact legacy pool and keeps it through an older account snapshot', async () => {
+    const original = api.migrateCatalog(grouped, categories);
+    const oldCatalog = {
+      ...plain(original), entries: plain(original.entries).map(({ rotationPoolId, ...row }) => row),
+    };
+    const values = {
+      api_configs_manager: JSON.stringify(grouped), api_configs_categories: JSON.stringify(categories),
+      [keyV2]: JSON.stringify({ catalog: oldCatalog, sync: { pending: false, revision: 'previous' } }),
+    };
+    const account = new Map([[accountV2, JSON.stringify({ catalog: oldCatalog, revision: 'remote-old' })]]);
+    const fixture = harness(mode, { account, state: { version: 1, values } });
+    const storage = await fixture.open();
+    const before = plain(storage.catalog);
+    assert.ok(before.entries[0].rotationPoolId);
+    assert.equal(new Set(before.entries.map(row => row.rotationPoolId)).size, 1);
+    await storage.pull();
+    assert.deepEqual(plain(storage.catalog), before);
+    await storage.push();
+    assert.deepEqual(JSON.parse(account.get(accountV2)).catalog, before);
+    account.set(accountV2, JSON.stringify({ catalog: oldCatalog, revision: 'republished-by-old-client' }));
+    await storage.pull();
+    assert.deepEqual(plain(storage.catalog), before, 'a clean client retains unchanged rows’ verified pool metadata');
+    assert.deepEqual(plain((await fixture.open()).catalog), before);
+  });
+
   test(mode + ' retains subset conflict IDs and memberships across pull, upload and restart', async () => {
     const { local, incoming } = subsetConflict();
     const setRemote = (account, revision) => account.set(accountV2, JSON.stringify({ revision, catalog: incoming }));
@@ -168,7 +253,7 @@ for (const mode of ['st', 'tt']) {
     const fixture = harness(mode, { account });
     let storage = await fixture.open();
     await storage.update(() => local);
-    await storage.pull();
+    await (await storage.pull()).resolve('merge');
     const merged = plain(storage.catalog);
     assert.equal(merged.entries.length, 3);
     assert.equal(merged.groups.length, 3);
@@ -179,9 +264,8 @@ for (const mode of ['st', 'tt']) {
     await storage.pull();
     assert.deepEqual(plain(storage.catalog), merged);
     setRemote(account, 'republished-subset');
-    await storage.pull();
+    await (await storage.pull()).resolve('merge');
     assert.deepEqual(plain(storage.catalog), merged);
-    await storage.push();
     assert.deepEqual(JSON.parse(account.get(accountV2)).catalog, merged);
 
     const peer = await harness(mode === 'st' ? 'tt' : 'st', { account }).open();
@@ -190,6 +274,38 @@ for (const mode of ['st', 'tt']) {
     await peer.push();
     await storage.pull();
     assert.deepEqual(plain(storage.catalog), merged);
+  });
+
+  test(mode + ' only replaces the chosen side and rejects a stale conflict choice', async () => {
+    const { local, incoming } = subsetConflict();
+    const account = new Map([[accountV2, JSON.stringify({ catalog: incoming, revision: 'remote-1' })]]);
+    const fixture = harness(mode, { account });
+    const storage = await fixture.open();
+    await storage.update(() => local);
+    const localBefore = plain(fixture.getState());
+    const remoteBefore = account.get(accountV2);
+    const cancelled = await storage.pull();
+    assert.equal(typeof cancelled.resolve, 'function');
+    assert.deepEqual(plain(fixture.getState()), localBefore);
+    assert.equal(account.get(accountV2), remoteBefore);
+    const remoteNewer = JSON.stringify({ catalog: incoming, revision: 'remote-2' });
+    account.set(accountV2, remoteNewer);
+    await assert.rejects(cancelled.resolve('local'), /重新同步/);
+    await assert.rejects(cancelled.resolve('merge'), /重新同步/);
+    assert.deepEqual(plain(fixture.getState()), localBefore);
+    assert.equal(account.get(accountV2), remoteNewer);
+    await (await storage.pull()).resolve('account');
+    assert.deepEqual(plain(storage.catalog), incoming);
+    assert.equal(account.get(accountV2), remoteNewer);
+    await storage.update(() => local);
+    const unchangedRevision = await storage.pull();
+    assert.equal(typeof unchangedRevision.resolve, 'function', 'pull still offers the account version after local edits');
+    assert.equal(account.get(accountV2), remoteNewer);
+    account.set(accountV2, JSON.stringify({ catalog: incoming, revision: 'remote-3' }));
+    await (await storage.push()).resolve('local');
+    assert.deepEqual(plain(storage.catalog), local);
+    assert.deepEqual(JSON.parse(account.get(accountV2)).catalog, local);
+    assert.equal(await storage.pull(), '已读取此账户版本。');
   });
 
   test(mode + ' migrates once, saves edits by ID, and restarts with both credentials', async () => {
@@ -247,10 +363,8 @@ test('account pull imports old credentials; ST and TT exchange both entries, sta
   const legacy = JSON.stringify({ version: 1, revision: 'legacy', configs: [flatConfigs[1]], categories });
   const account = new Map([[accountV1, legacy]]);
   const first = await harness('st', { legacy: { ...legacyValues, api_configs_manager: JSON.stringify([flatConfigs[0]]) }, account }).open();
-  await assert.rejects(first.push(), /先点/);
-  await first.pull();
+  await (await first.push()).resolve('merge');
   const ids = Array.from(first.catalog.entries, row => row.id);
-  await first.push();
   assert.equal(account.get(accountV1), legacy);
   assert.equal(JSON.parse(account.get(accountV2)).catalog.entries.length, 2);
   const second = await harness('tt', { account }).open();
@@ -260,12 +374,12 @@ test('account pull imports old credentials; ST and TT exchange both entries, sta
     ...catalog, entries: catalog.entries.map(row => row.id === ids[0] ? { ...row, model: 'edited-model' } : row),
   }));
   await second.push();
-  await first.pull();
+  await (await first.pull()).resolve('account');
   assert.deepEqual(modelKeys(first.catalog), [['edited-model', 'fixture-key-a'], ['same-model', 'fixture-key-b']]);
   assert.deepEqual(Array.from(first.catalog.entries, row => row.id), ids);
   await second.update(catalog => ({ ...catalog, entries: catalog.entries.slice(1) }));
   await second.push();
-  await first.pull();
+  await (await first.pull()).resolve('account');
   assert.deepEqual(modelKeys(first.catalog), [['same-model', 'fixture-key-b']]);
 });
 
@@ -281,10 +395,8 @@ test('diverged account edits can be merged without silently overwriting either k
     }));
   }
   await first.push();
-  await assert.rejects(second.push(), /先点/);
-  await second.pull();
-  await second.push();
-  await first.pull();
+  await (await second.push()).resolve('merge');
+  await (await first.pull()).resolve('account');
   assert.deepEqual(Array.from(first.catalog.entries, row => row.key).sort(), ['fixture-edit-st', 'fixture-edit-tt', 'fixture-key-b']);
 });
 
@@ -330,4 +442,30 @@ test('Google model pagination keeps the selected credential and OpenAI/DeepSeek 
     ['https://api.openai.com/v1/models', { Authorization: 'Bearer ' + key }],
     ['https://api.deepseek.com/v1/models', { Authorization: 'Bearer ' + key }],
   ]);
+});
+
+test('test messages use only the selected provider, credential and model without host API calls', async () => {
+  const calls = [];
+  const request = async (href, options) => {
+    calls.push({ href, options, body: JSON.parse(options.body) });
+    return href.includes('generateContent') ? Response.json({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] })
+      : Response.json({ choices: [{ message: { content: 'ok' } }] });
+  };
+  for (const [source, endpoint] of [
+    ['custom', url + '/models'], ['openai', ''], ['deepseek', ''], ['makersuite', ''],
+  ]) {
+    assert.equal(await api.sendCatalogTest({ source, url: endpoint, key: 'fixture-' + source, model: 'sample' }, request), 'ok');
+  }
+  assert.deepEqual(calls.map(call => call.href), [
+    url + '/chat/completions', 'https://api.openai.com/v1/chat/completions', 'https://api.deepseek.com/v1/chat/completions',
+    'https://generativelanguage.googleapis.com/v1beta/models/sample:generateContent',
+  ]);
+  assert.deepEqual(calls.slice(0, 3).map(call => call.options.headers.Authorization), [
+    'Bearer fixture-custom', 'Bearer fixture-openai', 'Bearer fixture-deepseek',
+  ]);
+  assert.equal(calls[3].options.headers['x-goog-api-key'], 'fixture-makersuite');
+  assert.ok(calls.every(call => call.options.method === 'POST' && call.options.credentials === 'omit' && call.options.redirect === 'error'));
+  assert.ok(calls.slice(0, 3).every(call => call.body.model === 'sample'));
+  await assert.rejects(api.sendCatalogTest({ source: 'custom', url, key: '', model: 'sample' }, request), /选定密钥和模型/);
+  assert.equal(calls.length, 4);
 });

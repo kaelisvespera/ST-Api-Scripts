@@ -29,6 +29,7 @@ function validateCatalog(value) {
 
 function migrateCatalog(configs, categories = []) {
   const catalog = emptyCatalog();
+  const rotationPools = new Map();
   if (!Array.isArray(categories)) throw formatError();
   // Keep legacy IDs, colors and order; resolve category names used by older
   // exports. Unknown category references remain usable instead of disappearing.
@@ -64,13 +65,20 @@ function migrateCatalog(configs, categories = []) {
     const groupIds = labels(labels([...(config.categoryIds ?? []), config.categoryId]).map(groupId));
     const pool = config.apiKeys?.length ? [...config.apiKeys] : [];
     if (config.apiKey !== undefined && !pool.some(item => item?.key === config.apiKey)) pool.push({ key: config.apiKey });
+    let rotationPoolId;
+    if (config.enableKeyRotation && pool.length > 1) {
+      // Legacy models shared the cursor within a site and its ordered key pool.
+      const identity = JSON.stringify([config.groupKey || site, config.source, config.customUrl, pool.map(item => [item?.id, item?.key])]);
+      if (!rotationPools.has(identity)) rotationPools.set(identity, makeId());
+      rotationPoolId = rotationPools.get(identity);
+    }
     for (const [index, credential] of (pool.length ? pool : [{ key: '' }]).entries()) {
       if (!isObject(credential) || !isText(credential.key)) throw formatError();
       const { key, ...keyHistory } = credential;
       const { currentKeyIndex, enableKeyRotation, isActive, lastVerifiedAt, lastVerifiedKeyIndex, lastHealthStatus, lastHealthError } = config;
       catalog.entries.push({
         id: makeId(), site, name: config.name || '', source: config.source,
-        url: config.customUrl ?? '', model, key, groupIds,
+        url: config.customUrl ?? '', model, key, groupIds, ...(rotationPoolId ? { rotationPoolId } : {}),
         history: { index, poolSize: pool.length, keyHistory, currentKeyIndex, enableKeyRotation, isActive, lastVerifiedAt, lastVerifiedKeyIndex, lastHealthStatus, lastHealthError },
       });
     }
@@ -93,12 +101,13 @@ function canonical(value) {
     .map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
   return JSON.stringify(value);
 }
-const withoutId = ({ id, ...value }) => canonical(value);
+const legacyRecordContent = ({ id, rotationPoolId, ...value }) => canonical(value);
 const conflictContent = ({ id, conflictSourceId, ...value }) => canonical(value);
 
 function mergeCatalogRecords(local, incoming, legacy) {
   const records = [...local];
   const byId = new Map(local.map(record => [record.id, record]));
+  const positions = new Map(local.map((record, index) => [record.id, index]));
   const reservedIds = new Set(incoming.map(record => record.id));
   const ids = new Map();
   for (const record of incoming) {
@@ -106,6 +115,12 @@ function mergeCatalogRecords(local, incoming, legacy) {
     let result;
     if (existing && canonical(existing) === canonical(record)) {
       result = existing;
+    } else if (existing &&
+        Object.hasOwn(existing, 'rotationPoolId') !== Object.hasOwn(record, 'rotationPoolId') &&
+        legacyRecordContent(existing) === legacyRecordContent(record)) {
+      // A 2.2.0 snapshot may predate pool metadata for this same record.
+      result = Object.hasOwn(existing, 'rotationPoolId') ? existing : record;
+      records[positions.get(record.id)] = result;
     } else if (existing) {
       // Reuse only a copy made for this ID. An independent record can have
       // identical contents, even if it is absent from the imported subset.
@@ -113,8 +128,8 @@ function mergeCatalogRecords(local, incoming, legacy) {
       result = local.find(candidate => !reservedIds.has(candidate.id) &&
         candidate.conflictSourceId === record.id && conflictContent(candidate) === content);
     } else if (legacy) {
-      const content = withoutId(record);
-      result = local.find(candidate => !reservedIds.has(candidate.id) && withoutId(candidate) === content);
+      const content = legacyRecordContent(record);
+      result = local.find(candidate => !reservedIds.has(candidate.id) && legacyRecordContent(candidate) === content);
     }
     if (!result) {
       result = existing ? { ...record, id: makeId(), conflictSourceId: record.id } : record;
@@ -129,8 +144,66 @@ function mergeCatalogRecords(local, incoming, legacy) {
 function mergeCatalogs(local, incoming, legacy = false) {
   const { records: groups, ids: groupIds } = mergeCatalogRecords(local.groups, incoming.groups, legacy);
   const incomingEntries = incoming.entries.map(row => ({ ...row, groupIds: row.groupIds.map(id => groupIds.get(id)) }));
-  const { records: entries } = mergeCatalogRecords(local.entries, incomingEntries, legacy);
+  const { records: entries, ids } = mergeCatalogRecords(local.entries, incomingEntries, legacy);
+  if (legacy) {
+    const existing = new Map(local.entries.map(row => [row.id, row]));
+    const incomingPools = new Map();
+    const existingPools = new Map();
+    for (const row of incomingEntries) {
+      if (!row.rotationPoolId) continue;
+      const id = ids.get(row.id);
+      incomingPools.set(id, row.rotationPoolId);
+      const pool = existing.get(id)?.rotationPoolId;
+      if (!pool) continue;
+      if (!existingPools.has(row.rotationPoolId)) existingPools.set(row.rotationPoolId, new Set());
+      existingPools.get(row.rotationPoolId).add(pool);
+    }
+    for (let index = local.entries.length; index < entries.length; index++) {
+      const row = entries[index];
+      const matches = existingPools.get(incomingPools.get(row.id));
+      if (matches?.size === 1) entries[index] = { ...row, rotationPoolId: matches.values().next().value };
+    }
+  }
   return { ...local, entries, groups };
+}
+
+function recoverLegacyRotation(catalog, configs, categories) {
+  const old = migrateCatalog(configs, categories);
+  const rowsByContent = new Map();
+  for (const row of catalog.entries) {
+    const content = legacyRecordContent(row);
+    if (!rowsByContent.has(content)) rowsByContent.set(content, []);
+    rowsByContent.get(content).push(row);
+  }
+  const pools = new Map();
+  const occurrences = new Map();
+  for (const row of old.entries) {
+    const content = legacyRecordContent(row);
+    occurrences.set(content, (occurrences.get(content) ?? 0) + 1);
+    if (!row.rotationPoolId) continue;
+    if (!pools.has(row.rotationPoolId)) pools.set(row.rotationPoolId, []);
+    pools.get(row.rotationPoolId).push(content);
+  }
+  const recovered = new Map();
+  for (const [poolId, contents] of pools) {
+    if (contents.some(content => occurrences.get(content) !== 1 || rowsByContent.get(content)?.length !== 1 ||
+        Object.hasOwn(rowsByContent.get(content)[0], 'rotationPoolId'))) continue;
+    for (const content of contents) recovered.set(rowsByContent.get(content)[0].id, poolId);
+  }
+  if (!recovered.size) return catalog;
+  return { ...catalog, entries: catalog.entries.map(row => recovered.has(row.id)
+    ? { ...row, rotationPoolId: recovered.get(row.id) } : row) };
+}
+
+function preservePoolMetadata(local, incoming) {
+  const localById = new Map(local.entries.map(row => [row.id, row]));
+  const entries = incoming.entries.map(row => {
+    const previous = localById.get(row.id);
+    if (Object.hasOwn(row, 'rotationPoolId') || !previous || !Object.hasOwn(previous, 'rotationPoolId') ||
+        legacyRecordContent(previous) !== legacyRecordContent(row)) return row;
+    return { ...row, rotationPoolId: previous.rotationPoolId };
+  });
+  return { ...incoming, entries };
 }
 
 const defaultEndpoints = {
@@ -146,14 +219,14 @@ function endpointUrl(value) {
   return url;
 }
 
-async function discoverModels({ source, url, key }, request) {
+function providerTarget({ source, url, key }) {
   const google = source === 'makersuite';
   if (source !== 'custom' && !Object.hasOwn(defaultEndpoints, source)) {
     throw new Error('此来源请手动填写模型名。');
   }
   const target = endpointUrl(url.trim() || defaultEndpoints[source]);
   const base = target.pathname.replace(/\/+$/, '').replace(/\/(?:chat\/completions|models)$/, '');
-  target.pathname = (base || (google ? '/v1beta' : '/v1')) + '/models';
+  target.pathname = base || (google ? '/v1beta' : '/v1');
   target.hash = '';
   for (const param of [...target.searchParams.keys()]) {
     if (/^(?:key|api[_-]?key|access_token)$/i.test(param)) {
@@ -162,6 +235,12 @@ async function discoverModels({ source, url, key }, request) {
   }
   target.searchParams.delete('pageToken');
   const headers = key ? (google ? { 'x-goog-api-key': key } : { Authorization: 'Bearer ' + key }) : {};
+  return { target, headers, google };
+}
+
+async function discoverModels(config, request) {
+  const { target, headers, google } = providerTarget(config);
+  target.pathname += '/models';
   const models = new Set();
   const pages = new Set();
   let next;
@@ -191,6 +270,35 @@ async function discoverModels({ source, url, key }, request) {
     next = google && isText(data.nextPageToken) ? data.nextPageToken : undefined;
   } while (next);
   return [...models].sort();
+}
+
+async function sendCatalogTest(config, request) {
+  if (!config.key.trim() || !config.model.trim()) throw new Error('请先选定密钥和模型。');
+  const { target, headers, google } = providerTarget(config);
+  const text = '请仅回复：连接成功。';
+  let body;
+  if (google) {
+    const model = encodeURIComponent(config.model.replace(/^models\//, ''));
+    target.pathname += '/models/' + model + ':generateContent';
+    body = { contents: [{ role: 'user', parts: [{ text }] }], generationConfig: { maxOutputTokens: 32 } };
+  } else {
+    target.pathname += '/chat/completions';
+    const limit = config.source === 'openai' ? 'max_completion_tokens' : 'max_tokens';
+    body = { model: config.model, messages: [{ role: 'user', content: text }], stream: false, [limit]: 32 };
+  }
+  let response, data;
+  try {
+    response = await request(target.href, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      credentials: 'omit', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(15000),
+    });
+    if (response.ok) data = await response.json();
+  } catch { throw new Error('测试消息请求失败，请检查站点、密钥或跨域访问。'); }
+  if (!response.ok) throw new Error('测试消息失败（HTTP ' + response.status + '）。');
+  const content = google ? data?.candidates?.[0]?.content?.parts : data?.choices?.[0]?.message?.content;
+  const output = Array.isArray(content) ? content.map(part => part?.text).filter(isText).join('') : content;
+  if (!isText(output) || !output.trim()) throw new Error('站点没有返回测试文本。');
+  return output;
 }
 
 export { emptyCatalog, readCatalog, migrateCatalog, mergeCatalogs, validateCatalog, discoverModels };

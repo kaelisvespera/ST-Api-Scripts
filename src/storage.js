@@ -2,6 +2,7 @@ const managerNamespace = 'st-api-manager';
 const catalogKey = 'st_api_manager_catalog_v2';
 const legacyAccountKey = 'st_api_manager_sync_v1';
 const accountKey = 'st_api_manager_sync_v2';
+const connectionKey = 'st_api_manager_connection_v2';
 const storageEntry = { namespace: managerNamespace, key: 'state' };
 const legacyStorageKeys = [
   'api_configs_manager', 'api_configs_categories', 'api_configs_collapsed_categories',
@@ -29,8 +30,8 @@ async function openCatalogStorage(host, context, browserStorage) {
     sync: { revision: null, pending: false },
   };
   let pendingWrite = Promise.resolve();
-  const persist = async next => {
-    const nextValues = { ...values, [catalogKey]: JSON.stringify(next) };
+  const persist = async (next, extra = {}) => {
+    const nextValues = { ...values, ...extra, [catalogKey]: JSON.stringify(next) };
     const value = { version: 1, values: nextValues };
     if (store) {
       try { await store.setJson({ ...storageEntry, value }); }
@@ -59,11 +60,27 @@ async function openCatalogStorage(host, context, browserStorage) {
     if (!isObject(parsed?.sync) || (parsed.sync.revision !== null && !isText(parsed.sync.revision))
         || typeof parsed.sync.pending !== 'boolean') throw formatError();
     state = { catalog: validateCatalog(parsed.catalog), sync: parsed.sync };
+    if (values.api_configs_manager && !values.st_api_manager_rotation_migrated) {
+      let recovered = state.catalog;
+      try {
+        recovered = recoverLegacyRotation(state.catalog, JSON.parse(values.api_configs_manager), JSON.parse(values.api_configs_categories ?? '[]'));
+      } catch { /* The current catalog remains usable if a retired backup is unreadable. */ }
+      if (recovered !== state.catalog) {
+        await persist({ catalog: recovered, sync: { ...state.sync, pending: true } }, { st_api_manager_rotation_migrated: '1' });
+      }
+    }
   } else if (Object.keys(values).length) {
     const oldConfigs = JSON.parse(values.api_configs_manager ?? '[]');
     const oldGroups = JSON.parse(values.api_configs_categories ?? '[]');
     const catalog = migrateCatalog(oldConfigs, oldGroups);
     await persist({ catalog, sync: { revision: null, pending: true } });
+  }
+
+  function savedObject(key) {
+    try {
+      const data = JSON.parse(values[key] ?? '{}');
+      return isObject(data) ? data : {};
+    } catch { return {}; }
   }
 
   const account = context.accountStorage;
@@ -78,12 +95,77 @@ async function openCatalogStorage(host, context, browserStorage) {
     let value;
     try { value = JSON.parse(raw); } catch { throw formatError(); }
     if (!isText(value?.revision) || !value.revision) throw formatError();
-    if (current != null) return { revision: value.revision, catalog: validateCatalog(value.catalog), legacy: false };
+    if (current != null) return { revision: value.revision, catalog: validateCatalog(value.catalog), legacy: false, raw };
     if (value.version !== 1 || !Array.isArray(value.configs) || !Array.isArray(value.categories)) throw formatError();
-    return { revision: 'legacy:' + value.revision, catalog: migrateCatalog(value.configs, value.categories), legacy: true };
+    return { revision: 'legacy:' + value.revision, catalog: migrateCatalog(value.configs, value.categories), legacy: true, raw };
+  }
+  const same = (left, right) => canonical(left) === canonical(right);
+  const hasRecords = catalog => catalog.entries.length > 0 || catalog.groups.length > 0;
+  async function accept(catalog, revision, pending = false) {
+    await persist({ catalog, sync: { revision, pending, syncedAt: new Date().toISOString() } });
+  }
+  async function upload(catalog) {
+    const revision = makeId();
+    try { await account.setItem(accountKey, JSON.stringify({ revision, catalog })); }
+    catch { throw new Error('写入酒馆账户存储失败。'); }
+    await accept(catalog, revision);
+  }
+  function conflict(incoming) {
+    const local = state.catalog;
+    const revision = state.sync.revision;
+    const colors = [];
+    const localNames = new Map();
+    const incomingNames = new Map();
+    const localById = new Map(local.groups.map(group => [group.id, group]));
+    for (const [groups, names] of [[local.groups, localNames], [incoming.catalog.groups, incomingNames]]) {
+      for (const group of groups) names.set(group.name, names.has(group.name) ? null : group);
+    }
+    for (const group of incoming.catalog.groups) {
+      const sameId = localById.get(group.id);
+      const match = sameId?.name === group.name ? sameId
+        : incomingNames.get(group.name) ? localNames.get(group.name) : undefined;
+      if (match && match.color !== group.color) colors.push({
+        localId: match.id, accountId: group.id, name: group.name, localColor: match.color, accountColor: group.color,
+      });
+    }
+    const count = catalog => ({ entries: catalog.entries.length, groups: catalog.groups.length });
+    return {
+      local: count(local), account: count(incoming.catalog), colors,
+      resolve: (choice, colorChoices = new Map()) => transact(async () => {
+        const latest = await remote();
+        if (!latest || latest.revision !== incoming.revision || latest.raw !== incoming.raw ||
+            state.catalog !== local || state.sync.revision !== revision) {
+          throw new Error('选择期间本机或账户数据已变化，请关闭弹窗并重新同步。');
+        }
+        if (choice === 'account') {
+          await accept(incoming.catalog, incoming.revision, incoming.legacy);
+          return '已使用账户数据。';
+        }
+        if (choice === 'local') {
+          await upload(local);
+          return '已使用本机数据并同步到账户。';
+        }
+        if (choice !== 'merge') throw new Error('请选择处理方式。');
+        const localColors = new Map(), accountColors = new Map();
+        for (const color of colors) {
+          const selected = colorChoices.get(color.accountId) === 'account' ? color.accountColor : color.localColor;
+          localColors.set(color.localId, selected);
+          accountColors.set(color.accountId, selected);
+        }
+        const applyColors = (catalog, choices) => ({
+          ...catalog, groups: catalog.groups.map(group => choices.has(group.id) ? { ...group, color: choices.get(group.id) } : group),
+        });
+        await upload(mergeCatalogs(applyColors(local, localColors), applyColors(incoming.catalog, accountColors), incoming.legacy));
+        return '已合并配置并同步到账户。';
+      }),
+    };
   }
   return {
     get catalog() { return state.catalog; },
+    get syncInfo() { return { ...state.sync }; },
+    get connectionState() { return savedObject(connectionKey); },
+    get legacyBindings() { return savedObject('st_api_manager_tt_secret_bindings_v1'); },
+    setConnectionState: connection => transact(() => persist(state, { [connectionKey]: JSON.stringify(connection) })),
     canSync,
     flush: () => pendingWrite,
     update: change => transact(async () => {
@@ -94,25 +176,23 @@ async function openCatalogStorage(host, context, browserStorage) {
       if (!canSync) throw new Error('当前酒馆不支持账户存储。');
       const incoming = await remote();
       if (!incoming) return '账户还没有同步数据。';
-      if (incoming.revision === state.sync.revision) return '已读取此账户版本。';
-      // If both copies have work, keep both. A clean client can adopt a later
-      // published snapshot, including intentional removals from another client.
-      const combine = state.sync.pending || state.sync.revision === null || incoming.legacy;
-      const catalog = combine ? mergeCatalogs(state.catalog, incoming.catalog, incoming.legacy) : incoming.catalog;
-      const pending = canonical(catalog) !== canonical(incoming.catalog) || incoming.legacy;
-      await persist({ catalog, sync: { revision: incoming.revision, pending } });
-      return pending ? '已合并账户与本机配置；可将合并后的版本同步到账户。' : '已从账户读取配置。';
+      const catalog = preservePoolMetadata(state.catalog, incoming.catalog);
+      const identical = same(state.catalog, catalog);
+      if (incoming.revision === state.sync.revision && (identical || incoming.legacy)) return '已读取此账户版本。';
+      if (!identical && (hasRecords(state.catalog) || (state.sync.pending && state.sync.revision))) {
+        return conflict(incoming);
+      }
+      await accept(catalog, incoming.revision, incoming.legacy || !same(catalog, incoming.catalog));
+      return '已从账户读取配置。';
     }),
     push: () => transact(async () => {
       if (!canSync) throw new Error('当前酒馆不支持账户存储。');
       const incoming = await remote();
       if ((incoming?.revision ?? null) !== state.sync.revision) {
-        throw new Error('账户上有尚未读取的数据。请先点「从账户读取」，再上传合并后的配置。');
+        if (!incoming) throw new Error('账户数据已删除或不可用，无法覆盖。');
+        if (!same(state.catalog, incoming.catalog)) return conflict(incoming);
       }
-      const revision = makeId();
-      try { await account.setItem(accountKey, JSON.stringify({ revision, catalog: state.catalog })); }
-      catch { throw new Error('写入酒馆账户存储失败。'); }
-      await persist({ catalog: state.catalog, sync: { revision, pending: false } });
+      await upload(state.catalog);
       return '已写入酒馆账户存储。';
     }),
   };

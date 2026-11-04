@@ -4,7 +4,8 @@ async function startCatalogManager(host, browserStorage) {
   if (doc.readyState === 'loading') await new Promise(resolve => doc.addEventListener('DOMContentLoaded', resolve, { once: true }));
   const context = host.SillyTavern.getContext();
   const storage = await openCatalogStorage(host, context, browserStorage);
-  const open = mountCatalogPanel(host, storage);
+  const connection = createCatalogConnection(host, context, storage);
+  const open = mountCatalogPanel(host, storage, connection);
   function entry(selector, id) {
     const container = doc.querySelector(selector);
     if (!container || doc.getElementById(id)) return;
@@ -12,7 +13,7 @@ async function startCatalogManager(host, browserStorage) {
     button.id = id;
     button.type = 'button';
     button.className = 'menu_button interactable';
-    button.textContent = 'API 管理器';
+    button.textContent = 'API 管理';
     button.addEventListener('click', event => { event.stopPropagation(); open(); });
     container.append(button);
   }
