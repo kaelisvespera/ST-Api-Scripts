@@ -3,10 +3,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { withBrowser } = require('./browser-fixture.cjs');
+const { config, legacyValues } = require('./catalog-fixture.cjs');
 
 const preview = process.env.ST_API_UI_PREVIEW;
 const exactButton = (pane, name) => pane.getByRole('button', { name, exact: true });
 const expectText = (pane, text) => pane.getByText(text, { exact: true }).waitFor();
+const rowAction = async (tab, row, name) => {
+  await exactButton(row, '更多操作').click();
+  await exactButton(tab.getByRole('dialog', { name: '更多操作', exact: true }), name).click();
+};
 const openPane = async (tab, from, button, title = button) => {
   await exactButton(from, button).click();
   const pane = tab.getByRole('dialog', { name: title, exact: true });
@@ -53,14 +58,14 @@ for (const mode of ['st', 'tt']) {
       const row = element.querySelector('.secretKeyManagerItem');
       return { width: box.width, left: box.left, right: box.right,
         overflow: element.scrollWidth > element.clientWidth, rowRadius: getComputedStyle(row).borderRadius,
-        rowDirection: getComputedStyle(row).flexDirection };
+        rowDisplay: getComputedStyle(row).display };
     });
     await tab.setViewportSize({ width: 1280, height: 900 });
     const desktop = await layout();
     assert.equal(desktop.width, 800);
     assert.ok(desktop.left > 0 && desktop.right < 1280);
     assert.equal(desktop.rowRadius, '10px');
-    assert.equal(desktop.rowDirection, 'row');
+    assert.equal(desktop.rowDisplay, 'grid');
     assert.equal(desktop.overflow, false);
     await capture(tab, mode + '-desktop');
     await tab.setViewportSize({ width: 375, height: 812 });
@@ -78,7 +83,7 @@ for (const mode of ['st', 'tt']) {
     await firstDrawer.locator('.secretKeyManagerItem').waitFor();
 
     const editRow = async index => {
-      await exactButton(rows.nth(index), '编辑').click();
+      await rowAction(tab, rows.nth(index), '编辑');
       const editor = tab.getByRole('dialog', { name: '编辑 API 配置', exact: true });
       await editor.waitFor();
       return editor;
@@ -110,7 +115,7 @@ for (const mode of ['st', 'tt']) {
     await tags.getByLabel('新分组名称').fill('第三组');
     await exactButton(tags, '新建分类').click();
     await expectText(tags, '已创建分组。');
-    await tags.getByLabel('搜索配置名称或模型').fill('第一个条目的备注');
+    await tags.getByLabel('搜索组名、模型、标题或备注').fill('第一个条目的备注');
     await exactButton(tags, '选择当前列表').click();
     await tags.getByRole('checkbox', { name: '第三组', exact: true }).check();
     await exactButton(tags, '添加标签').click();
@@ -300,7 +305,7 @@ for (const mode of ['st', 'tt']) {
     await open();
     const older = await readCatalog();
     const [first, second] = older.entries;
-    await exactButton(card(first), '编辑').click();
+    await rowAction(tab, card(first), '编辑');
     await editor.getByLabel('密钥备注', { exact: true }).fill('CCMAX');
     await editor.getByLabel('模型备注', { exact: true }).fill('0.5/次');
     await saveEditor();
@@ -374,7 +379,7 @@ for (const mode of ['st', 'tt']) {
     await expectText(card(extra), 'CCMAX');
     await expectText(card(b), '0.2/次');
     await capture(tab, mode + '-notes-main-390');
-    await exactButton(card(extra), '编辑').click();
+    await rowAction(tab, card(extra), '编辑');
     await keyNotes.first().fill('CCMAX 更新');
     await modelNotes.first().fill('');
     await saveEditor();
@@ -399,7 +404,7 @@ for (const mode of ['st', 'tt']) {
     await importFile(Buffer.from(JSON.stringify(older)), false);
     assert.deepEqual(await readCatalog(), saved);
     await exactButton(data, '关闭').click();
-    await exactButton(card(extra), '编辑').click();
+    await rowAction(tab, card(extra), '编辑');
     await exactButton(editor, '移除模型').click();
     await saveEditor();
     const removed = await readCatalog();
@@ -412,7 +417,7 @@ for (const mode of ['st', 'tt']) {
     await importFile(exported, true);
     assert.deepEqual(await readCatalog(), saved);
     await exactButton(replacePane, '关闭').click();
-    await exactButton(card(a), '编辑').click();
+    await rowAction(tab, card(a), '编辑');
     await keyNotes.first().fill('');
     await saveEditor();
     const cleared = await readCatalog();
@@ -427,6 +432,158 @@ for (const mode of ['st', 'tt']) {
     assert.deepEqual(remaining.keyNotes, [{ id: b.credentialId, note: longNote }]);
     await assertConnection();
   }));
+
+  test(mode + ': compact cards preserve legacy names and support touch, keyboard and row actions', { timeout: 90000 }, () => withBrowser(mode, async ({
+    tab, open, flush, assertConnection, stores, origin,
+  }) => {
+    const model = 'anthropic:claude-opus-4-6-' + 'very-long-model-name-'.repeat(6) + 'suffix';
+    const originalNames = ['[星港 新号] 【按次】 ' + model, '[星港 新号] ' + model, '手写的条目标题', '[收藏] ' + model];
+    const keys = ['fixture-key-a', 'fixture-key-b', 'fixture-key-c', 'fixture-key-d'];
+    const legacy = keys.map((key, index) => ({
+      ...config(key), groupName: '星港 新号', name: originalNames[index],
+      customModel: model, customUrl: origin + '/provider/v1',
+    }));
+    stores.set('one', { version: 1, values: { ...legacyValues, api_configs_manager: JSON.stringify(legacy) } });
+    await open();
+    const catalog = async () => {
+      await flush();
+      return JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog;
+    };
+    const original = await catalog();
+    const [a, b, c, d] = original.entries;
+    const dialog = name => tab.getByRole('dialog', { name, exact: true });
+    const panel = dialog('API 管理器');
+    const card = row => panel.locator('[data-entry-id="' + row.id + '"]').first();
+    const manager = await openPane(tab, panel, 'API 管理');
+    await exactButton(manager, '编辑此组的端点、密钥和模型').click();
+    const editor = dialog('编辑 API 配置');
+    await editor.getByLabel('配置组名称').fill('星港');
+    const keyNotes = editor.getByLabel('密钥备注', { exact: true });
+    await keyNotes.nth(0).fill('官key');
+    await keyNotes.nth(1).fill('官key');
+    await editor.getByLabel('模型备注', { exact: true }).fill('0.126');
+    await exactButton(editor, '管理第 2 个密钥的模型').click();
+    await editor.getByLabel('模型备注', { exact: true }).fill('0.25');
+    await exactButton(editor, '保存').click();
+    await editor.waitFor({ state: 'hidden' });
+    await exactButton(manager, '关闭').click();
+    const renamed = await catalog();
+    assert.deepEqual(renamed.entries.map(row => row.id), original.entries.map(row => row.id));
+    assert.deepEqual(renamed.entries.map(row => row.site), keys.map(() => '星港'));
+    assert.deepEqual(renamed.entries.map(row => row.name), originalNames);
+    assert.deepEqual(renamed.entries.map(row => [row.model, row.key, row.history]), original.entries.map(row => [row.model, row.key, row.history]));
+    assert.deepEqual(renamed.keyNotes.map(note => note.note), ['官key', '官key']);
+    await expectText(card(a), '【按次】');
+    await expectText(card(c), '手写的条目标题');
+    await expectText(card(d), '[收藏]');
+    assert.equal(await panel.getByText('星港 新号', { exact: false }).count(), 0);
+    for (const [index, row] of [a, b, c, d].entries()) await expectText(card(row), 'Key ' + (index + 1));
+    assert.equal(await panel.getByText(/fixture-key-[a-d]/).count(), 0);
+
+    await tab.addStyleTag({ content: mode === 'tt'
+      ? ':root{--mainFontSize:18px;--SmartThemeBodyColor:#182631;--SmartThemeBlurTintColor:#d7e1e8;--SmartThemeBorderColor:#6b8394;--SmartThemeQuoteColor:#245e92}.menu_button{background:#f6fafc}'
+      : ':root{--mainFontSize:18px}' });
+    for (const [width, height] of [[320, 568], [375, 812], [390, 844], [430, 932], [667, 375], [844, 390],
+      [768, 1024], [1024, 768], [1280, 900]]) {
+      await tab.setViewportSize({ width, height });
+      const fit = await card(a).evaluate(row => {
+        const cardBox = row.getBoundingClientRect();
+        const title = row.querySelector('.catalog-card-title');
+        const text = title.querySelector('.catalog-card-model');
+        const actions = row.querySelector('.catalog-card-actions');
+        const dialog = row.closest('dialog');
+        const content = dialog.querySelector('.popup-scroll-content');
+        return {
+          titleFull: title.getBoundingClientRect().width >= cardBox.width - 26,
+          twoLines: text.getBoundingClientRect().height <= 2 * Number.parseFloat(getComputedStyle(text).lineHeight) + 1,
+          actionsFit: actions.getBoundingClientRect().right <= cardBox.right && [...actions.children].every(button => button.offsetHeight >= 40),
+          overflow: Math.max(row.scrollWidth - row.clientWidth, content.scrollWidth - content.clientWidth),
+          margin: dialog.getBoundingClientRect().left,
+        };
+      });
+      const label = mode + ' ' + width + '×' + height + ' ' + JSON.stringify(fit);
+      assert.ok(fit.titleFull && fit.twoLines && fit.actionsFit && fit.overflow <= 1 && fit.margin >= 15, label);
+      if ([390, 768, 844, 1280].includes(width)) await capture(tab, mode + '-compact-' + width);
+    }
+    await tab.setViewportSize({ width: 390, height: 844 });
+    const title = exactButton(card(a), model);
+    await title.tap();
+    const details = dialog('配置详情');
+    await expectText(details, originalNames[0]);
+    await expectText(details, model);
+    await expectText(details, '0.126');
+    await capture(tab, mode + '-compact-details-390');
+    await exactButton(details, '关闭').click();
+    assert.equal(await title.evaluate(button => button === document.activeElement), true);
+
+    const more = exactButton(card(a), '更多操作');
+    await more.press('Enter');
+    const actions = dialog('更多操作');
+    await actions.waitFor();
+    assert.equal(await exactButton(actions, '编辑').evaluate(button => button === document.activeElement), true);
+    await tab.keyboard.press('Escape');
+    await actions.waitFor({ state: 'hidden' });
+    assert.equal(await more.evaluate(button => button === document.activeElement), true);
+    await more.tap();
+    await capture(tab, mode + '-compact-actions-390');
+    await tab.touchscreen.tap(1, 1);
+    await actions.waitFor({ state: 'hidden' });
+    assert.equal(await more.evaluate(button => button === document.activeElement), true);
+
+    const tags = await openPane(tab, panel, '标签设置');
+    const search = tags.getByLabel('搜索组名、模型、标题或备注');
+    await search.fill('星港 官key 0.126');
+    assert.equal(await tags.locator('.config-item').count(), 1);
+    await expectText(tags, 'Key 1');
+    await search.fill('星港 新号');
+    assert.equal(await tags.locator('.config-item').count(), 2);
+    await search.fill(model);
+    assert.equal(await tags.locator('.config-item').count(), 4);
+    await expectText(tags, 'Key 3');
+    await search.fill('[收藏]');
+    assert.equal(await tags.locator('.config-item').count(), 1);
+    await expectText(tags, '[收藏]');
+    await search.fill('手写的条目标题');
+    assert.equal(await tags.locator('.config-item').count(), 1);
+    await exactButton(tags, '取消').click();
+
+    await rowAction(tab, card(a), '管理分组');
+    const groups = dialog('管理分组');
+    await groups.getByRole('checkbox', { name: '第二组', exact: true }).check();
+    await exactButton(groups, '保存').click();
+    await groups.waitFor({ state: 'hidden' });
+    assert.equal(await more.evaluate(button => button === document.activeElement), true);
+    await rowAction(tab, card(a), '移出标签分组');
+    await expectText(panel, '已移出标签分组。');
+    assert.deepEqual((await catalog()).entries.find(row => row.id === a.id).groupIds, ['group-b']);
+    assert.equal(await more.evaluate(button => button === document.activeElement), true);
+
+    await rowAction(tab, card(c), '编辑');
+    await editor.getByLabel('配置组名称').fill('独立组');
+    await exactButton(editor, '保存').click();
+    await editor.waitFor({ state: 'hidden' });
+    assert.equal(await exactButton(card(c), '更多操作').evaluate(button => button === document.activeElement), true);
+    await open();
+    await expectText(card(c), '独立组');
+    await expectText(card(a), '星港');
+    await expectText(card(a), '【按次】');
+    await expectText(card(b), '0.25');
+    assert.equal((await catalog()).entries.find(row => row.id === c.id).name, originalNames[2]);
+
+    await rowAction(tab, card(c), '编辑');
+    await editor.getByLabel('条目备注（可选）').fill('[新标记] ' + model);
+    await exactButton(editor, '保存').click();
+    await editor.waitFor({ state: 'hidden' });
+    await expectText(card(c), '[新标记]');
+    tab.once('dialog', prompt => prompt.dismiss());
+    await rowAction(tab, card(c), '删除');
+    assert.equal((await catalog()).entries.length, 4);
+    tab.once('dialog', prompt => prompt.accept());
+    await rowAction(tab, card(c), '删除');
+    await expectText(panel, '已删除配置。');
+    assert.deepEqual((await catalog()).entries.map(row => row.id), [a.id, b.id, d.id]);
+    await assertConnection();
+  }, { hasTouch: true }));
 
   test(mode + ': the account conflict dialog honors cancel, each choice, and a newer revision', { timeout: 45000 }, () => withBrowser(mode, async ({
     tab, open, flush, assertConnection, stores, accounts,

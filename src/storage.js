@@ -83,6 +83,27 @@ async function openCatalogStorage(host, context, browserStorage) {
     } catch { return {}; }
   }
 
+  // Historical names are evidence only. Match the exact old record, including
+  // its connection fields and credential, before hiding a former group prefix.
+  const titleRecord = row => JSON.stringify([row.source, row.url, row.model, row.key, row.name]);
+  let legacyTitleSites;
+  function legacyTitleSite(row) {
+    if (!legacyTitleSites) {
+      legacyTitleSites = new Map();
+      if (values.api_configs_manager) {
+        try {
+          const archive = migrateCatalog(JSON.parse(values.api_configs_manager));
+          for (const old of archive.entries) {
+            const id = titleRecord(old);
+            if (!legacyTitleSites.has(id)) legacyTitleSites.set(id, old.site);
+            else if (legacyTitleSites.get(id) !== old.site) legacyTitleSites.set(id, null);
+          }
+        } catch { /* An unreadable retired archive provides no naming evidence. */ }
+      }
+    }
+    return legacyTitleSites.get(titleRecord(row));
+  }
+
   const account = context.accountStorage;
   const canSync = typeof account?.getItem === 'function' && typeof account?.setItem === 'function';
   async function remote() {
@@ -162,6 +183,7 @@ async function openCatalogStorage(host, context, browserStorage) {
   }
   return {
     get catalog() { return state.catalog; },
+    legacyTitleSite,
     get syncInfo() { return { ...state.sync }; },
     get connectionState() { return savedObject(connectionKey); },
     get legacyBindings() { return savedObject('st_api_manager_tt_secret_bindings_v1'); },

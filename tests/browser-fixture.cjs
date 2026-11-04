@@ -30,7 +30,7 @@ const hostStyle = `
   .fa-check:before{content:'✓'}.fa-plus:before{content:'+'}.fa-xmark:before,.fa-times:before{content:'×'}
 `;
 
-async function withBrowser(mode, callback) {
+async function withBrowser(mode, callback, pageOptions = {}) {
   const stores = new Map();
   const accounts = new Map([['st_api_manager_sync_v1', legacySnapshot]]);
   const models = [], unexpected = [], errors = [], secretCalls = [], testCalls = [];
@@ -249,7 +249,7 @@ async function withBrowser(mode, callback) {
   let browser;
   try {
     browser = await chromium.launch({ channel: 'msedge', headless: true });
-    const tab = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const tab = await browser.newPage({ viewport: { width: 390, height: 844 }, ...pageOptions });
     tab.setDefaultTimeout(7000);
     tab.on('pageerror', error => errors.push(error.message));
     await tab.route(url => url.protocol.startsWith('http') && url.origin !== origin, route => route.abort());

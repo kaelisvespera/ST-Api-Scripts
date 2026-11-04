@@ -447,8 +447,8 @@ function openCatalogEditor(ui, rows, afterSave) {
       };
     }, '已保存配置。', () => {
       refresh();
-      afterSave?.();
       pane.dialog.close();
+      afterSave?.();
     });
   });
   pane.scroll.append(form);

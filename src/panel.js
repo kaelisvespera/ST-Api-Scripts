@@ -82,7 +82,19 @@ function mountCatalogPanel(host, storage, connection) {
   const collapsed = new Set();
   const unassigned = Symbol('uncategorized');
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
-  const rowTitle = row => row.name || (row.model ? '[' + row.site + '] ' + row.model : row.site);
+  const rowTitle = row => row.model ? '[' + row.site + '] ' + row.model : row.site;
+  function displayAlias(row) {
+    const model = row.model || '未选择模型';
+    if (row.name === model) return '';
+    // Collapse the old generated title in the list only. Keep its original
+    // text in the record and keep custom text between the group and model.
+    const legacy = /^\[([^\]\r\n]+)\]\s+(.+)$/u.exec(row.name);
+    if (!legacy) return row.name;
+    const [, prefix, suffix] = legacy;
+    if (suffix !== model && !suffix.endsWith(' ' + model)) return row.name;
+    const knownGroup = prefix === row.site || prefix === storage.legacyTitleSite(row);
+    return (knownGroup ? suffix : row.name).slice(0, -model.length).trim();
+  }
   const groupColor = group => /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#3b82f6';
   function sites() {
     const result = new Map();
@@ -102,64 +114,134 @@ function mountCatalogPanel(host, storage, connection) {
     return save(pane, catalog => ({ ...catalog, entries: catalog.entries.filter(row => !ids.has(row.id)) }),
       '已删除配置。', done);
   }
-  function rowNode(row, group, keyNumber, keyNote) {
-    const card = make('div', 'secretKeyManagerItem');
-    card.dataset.entryId = row.id;
-    const info = make('div', 'secretKeyManagerItemInfo');
-    const header = make('div', 'secretKeyManagerItemHeader');
-    const name = make('strong', 'config-name', rowTitle(row));
-    name.title = row.model;
-    header.append(name);
-    if (keyNumber) header.append(make('small', 'group-count', 'Key ' + keyNumber));
-    if (connection.activeRowId() === row.id) {
-      card.classList.add('secretKeyManagerItem--applied');
-      header.append(make('span', 'active-badge-sm', '已应用'));
+  function rowMetadata(row, { keyLabel, keyNote, alias }) {
+    const meta = make('span', 'catalog-card-meta');
+    meta.append(make('span', 'catalog-card-site', row.site));
+    if (keyLabel) meta.append(make('span', 'catalog-key-label', keyLabel));
+    for (const [value, glyph] of [[keyNote, 'key'], [row.modelNote, 'comment']]) {
+      if (!value) continue;
+      const note = make('span', 'catalog-meta-note');
+      note.append(icon(glyph), make('span', '', value));
+      meta.append(note);
     }
-    info.append(header);
-    if (keyNote || row.modelNote) {
-      const notes = make('dl', 'catalog-row-notes');
-      for (const [label, value] of [['密钥备注', keyNote], ['模型备注', row.modelNote]]) {
-        if (!value) continue;
-        const text = make('dd', '', value);
-        text.title = value;
-        notes.append(make('dt', '', label), text);
-      }
-      info.append(notes);
+    if (alias) meta.append(make('span', 'catalog-card-alias', alias));
+    return meta;
+  }
+  function showRowDetails(row, { keyLabel, keyNote }) {
+    const pane = popup('配置详情', 'small');
+    const fields = make('dl', 'catalog-details');
+    for (const [label, value] of [
+      ['模型 ID', row.model || '未选择模型'], ['配置组', row.site], ['密钥编号', keyLabel],
+      ['密钥备注', keyNote], ['模型备注', row.modelNote], ['原条目标题', row.name],
+    ]) {
+      if (value) fields.append(make('dt', '', label), make('dd', '', value));
     }
-    const controls = make('div', 'secretKeyManagerItemActions');
-    const actions = make('div', 'secretKeyManagerItemActionsRow');
-    actions.append(
-      button('应用', () => run(main, () => connection.apply(row), undefined, refresh), 'check', true),
-      button('编辑', () => edit([row]), 'pen-to-square', true),
-      button('管理分组', () => rowGroups(row), 'tag', true),
-    );
-    if (group) actions.append(button('移出标签分组', () => {
+    pane.scroll.append(fields);
+    pane.footer.append(closeButton(pane));
+    pane.open();
+  }
+  function focusRowAction(row, group, selector = '.catalog-card-more') {
+    const cards = [...main.scroll.querySelectorAll('.catalog-config-card')].filter(card =>
+      card.dataset.entryId === row.id && card.getClientRects().length);
+    const card = cards.find(card => card.dataset.groupId === (group?.id ?? '')) ?? cards[0];
+    (card?.querySelector(selector) ?? main.heading.querySelector('button'))?.focus();
+  }
+  function showRowActions(row, group) {
+    const pane = popup('更多操作', 'small');
+    const actions = make('div', 'catalog-more-actions');
+    function action(label, invoke, glyph) {
+      const control = button(label, () => { pane.dialog.close(); invoke(); }, glyph);
+      actions.append(control);
+      return control;
+    }
+    const restore = () => focusRowAction(row, group);
+    action('编辑', () => edit([row], restore), 'pen-to-square');
+    action('管理分组', () => rowGroups(row, restore), 'tag');
+    if (group) action('移出标签分组', () => {
       save(main, catalog => ({
         ...catalog, entries: catalog.entries.map(entry => entry.id === row.id
           ? { ...entry, groupIds: entry.groupIds.filter(id => id !== group.id) } : entry),
-      }), '已移出标签分组。');
-    }, 'xmark', true));
-    actions.append(button('删除', () => deleteRows(main, [row], '删除这一条配置？'), 'trash', true));
-    controls.append(actions);
-    card.append(info, controls);
+      }), '已移出标签分组。', () => { refresh(); restore(); });
+    }, 'xmark');
+    action('删除', () => deleteRows(main, [row], '删除这一条配置？', () => { refresh(); restore(); }), 'trash')
+      .classList.add('catalog-delete-action');
+    pane.scroll.append(make('p', 'catalog-action-target', rowTitle(row)), actions);
+    pane.footer.append(closeButton(pane));
+    pane.dialog.addEventListener('click', event => {
+      if (event.target !== pane.dialog) return;
+      const { left, right, top, bottom } = pane.dialog.getBoundingClientRect();
+      if (event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom) {
+        pane.dialog.close();
+      }
+    });
+    pane.open();
+  }
+  function rowNode(row, group, presentation) {
+    const card = make('div', 'secretKeyManagerItem catalog-config-card');
+    card.dataset.entryId = row.id;
+    card.dataset.groupId = group?.id ?? '';
+    const title = make('button', 'catalog-card-title');
+    title.type = 'button';
+    title.setAttribute('aria-haspopup', 'dialog');
+    title.append(make('span', 'catalog-card-model', row.model || '未选择模型'), icon('angle-right'));
+    title.addEventListener('click', () => {
+      title.focus({ preventScroll: true });
+      showRowDetails(row, presentation);
+    });
+    const meta = rowMetadata(row, presentation);
+    if (connection.activeRowId() === row.id) {
+      card.classList.add('secretKeyManagerItem--applied');
+      meta.append(make('span', 'active-badge-sm', '已应用'));
+    }
+    const actions = make('div', 'catalog-card-actions');
+    const more = button('⋯', () => {
+      more.focus({ preventScroll: true });
+      showRowActions(row, group);
+    });
+    more.classList.add('catalog-card-more');
+    more.setAttribute('aria-label', '更多操作');
+    more.setAttribute('aria-haspopup', 'dialog');
+    const apply = button('应用', () => run(main, () => connection.apply(row), undefined, () => {
+      refresh();
+      focusRowAction(row, group, '.catalog-card-apply');
+    }));
+    apply.classList.add('catalog-card-apply');
+    actions.append(apply, more);
+    card.append(title, meta, actions);
     return card;
   }
-  function refresh() {
-    const { groups, entries, keyNotes = [] } = storage.catalog;
-    const notesById = new Map(keyNotes.map(note => [note.id, note.note]));
-    const availableSites = sites();
-    const keyNumbers = new Map();
+  function rowPresentations(availableSites) {
+    const notesById = new Map((storage.catalog.keyNotes ?? []).map(note => [note.id, note.note]));
+    const presentations = new Map();
+    // Groups sharing a visible name can still have different endpoints.
+    const byName = new Map();
     for (const rows of availableSites.values()) {
-      const keys = [...new Set(rows.map(credentialRef))];
+      const name = rows[0].site;
+      if (!byName.has(name)) byName.set(name, []);
+      byName.get(name).push(...rows);
+    }
+    const visibleCredential = row => JSON.stringify([row.source, row.url, credentialRef(row)]);
+    for (const rows of byName.values()) {
+      const keys = [...new Set(rows.map(visibleCredential))];
       const models = new Map();
       for (const row of rows) {
         if (!models.has(row.model)) models.set(row.model, new Set());
-        models.get(row.model).add(credentialRef(row));
+        models.get(row.model).add(visibleCredential(row));
       }
       for (const row of rows) {
-        if (models.get(row.model).size > 1) keyNumbers.set(row.id, keys.indexOf(credentialRef(row)) + 1);
+        presentations.set(row.id, {
+          keyLabel: models.get(row.model).size > 1 ? 'Key ' + (keys.indexOf(visibleCredential(row)) + 1) : '',
+          keyNote: notesById.get(row.credentialId),
+          alias: displayAlias(row),
+        });
       }
     }
+    return presentations;
+  }
+  function refresh() {
+    const { groups, entries } = storage.catalog;
+    const availableSites = sites();
+    const presentations = rowPresentations(availableSites);
     for (const id of siteFilter) if (!availableSites.has(id)) siteFilter.delete(id);
     for (const id of categoryFilter) if (id !== unassigned && !groups.some(group => group.id === id)) categoryFilter.delete(id);
     const toolbar = make('div', 'api-manager-toolbar');
@@ -198,7 +280,7 @@ function mountCatalogPanel(host, storage, connection) {
       });
       const wrap = make('div', 'inline-drawer-content');
       const cards = make('div', 'secretKeyManagerList');
-      if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, keyNumbers.get(row.id), notesById.get(row.credentialId))));
+      if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, presentations.get(row.id))));
       else cards.append(make('p', 'st-orb-empty-state', '此标签暂无配置'));
       wrap.append(cards);
       drawer.append(header, wrap);
@@ -310,7 +392,7 @@ function mountCatalogPanel(host, storage, connection) {
     tag.append(label, ...extras);
     return tag;
   }
-  function rowGroups(row) {
+  function rowGroups(row, afterSave) {
     const pane = popup('管理分组');
     const wrap = make('div', 'set-category-modal');
     wrap.append(make('div', 'set-category-target', rowTitle(row)));
@@ -330,7 +412,7 @@ function mountCatalogPanel(host, storage, connection) {
         ...catalog, entries: catalog.entries.map(entry => entry.id === row.id ? {
           ...entry, groupIds: inputs.filter(([, input]) => input.checked).map(([id]) => id),
         } : entry),
-      }), '已保存标签。', () => { refresh(); pane.dialog.close(); }), 'check'));
+      }), '已保存标签。', () => { refresh(); pane.dialog.close(); afterSave(); }), 'check'));
     pane.open();
   }
   function tagSettings() {
@@ -339,7 +421,7 @@ function mountCatalogPanel(host, storage, connection) {
     const selectedRows = new Set();
     const selectedTags = new Set();
     let onlyUnassigned = false;
-    const search = fieldInput('', '搜索配置名称或模型', { type: 'search', placeholder: '搜索配置名称或模型...' });
+    const search = fieldInput('', '搜索组名、模型、标题或备注', { type: 'search', placeholder: '搜索组名、模型、标题或备注' });
     search.classList.add('search-input');
     const searchSection = make('div', 'search-section');
     searchSection.append(search);
@@ -363,10 +445,15 @@ function mountCatalogPanel(host, storage, connection) {
     const clearRows = button('取消选择', () => { selectedRows.clear(); renderRows(); });
     clearRows.className = 'selection-action';
     toolbar.append(selectList, unassignedButton, clearRows, count);
+    const presentations = rowPresentations(sites());
     function visibleRows() {
-      const query = search.value.trim().toLowerCase();
-      return storage.catalog.entries.filter(row => (!onlyUnassigned || !row.groupIds.length) &&
-        [rowTitle(row), row.model, row.site].some(value => value.toLowerCase().includes(query)));
+      const terms = search.value.toLowerCase().split(/\s+/).filter(Boolean);
+      return storage.catalog.entries.filter(row => {
+        if (onlyUnassigned && row.groupIds.length) return false;
+        const { keyLabel, keyNote } = presentations.get(row.id);
+        const searchable = [row.site, row.model, row.name, keyLabel, keyNote, row.modelNote].join(' ').toLowerCase();
+        return terms.every(term => searchable.includes(term));
+      });
     }
     const addTags = button('添加标签', () => changeTags('add'), 'plus');
     const removeTags = button('移除标签', () => changeTags('remove'), 'minus');
@@ -392,7 +479,10 @@ function mountCatalogPanel(host, storage, connection) {
           label.classList.toggle('selected', control.checked);
           setCount();
         });
-        label.append(control, make('span', 'config-info config-name', rowTitle(row)));
+        const info = make('span', 'config-info');
+        info.append(make('strong', 'catalog-selection-model', row.model || '未选择模型'),
+          rowMetadata(row, presentations.get(row.id)));
+        label.append(control, info);
         list.append(label);
       }
       if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '没有匹配的配置'));
