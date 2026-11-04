@@ -73,7 +73,10 @@ function mountCatalogPanel(host, storage, connection) {
     }
   }
   const main = popup('API 管理器', 'large', true);
-  main.footer.append(closeButton(main));
+  const version = make('span', 'toolbar-version', catalogPanelVersion);
+  version.setAttribute('aria-label', '当前版本');
+  main.footer.classList.add('catalog-main-footer');
+  main.footer.append(version, closeButton(main));
   const categoryFilter = new Set();
   const siteFilter = new Set();
   const collapsed = new Set();
@@ -149,17 +152,12 @@ function mountCatalogPanel(host, storage, connection) {
     for (const id of siteFilter) if (!availableSites.has(id)) siteFilter.delete(id);
     for (const id of categoryFilter) if (id !== unassigned && !groups.some(group => group.id === id)) categoryFilter.delete(id);
     const toolbar = make('div', 'api-manager-toolbar');
-    const left = make('div', 'toolbar-left');
-    const version = make('span', 'toolbar-version', catalogPanelVersion);
-    version.setAttribute('aria-label', '当前版本');
-    left.append(button('API 管理', manager, 'layer-group'), button('标签设置', tagSettings, 'tags'), version);
-    const right = make('div', 'toolbar-right');
     const filter = button('筛选', filters, 'filter');
     filter.setAttribute('aria-label', '筛选');
     const count = categoryFilter.size + siteFilter.size;
     if (count) filter.append(make('span', 'filter-badge', String(count)));
-    right.append(filter, button('检测', detection, 'bolt'), button('数据', dataPanel, 'database'));
-    toolbar.append(left, right);
+    toolbar.append(button('API 管理', manager, 'layer-group'), button('标签设置', tagSettings, 'tags'),
+      filter, button('检测', detection, 'bolt'), button('数据', dataPanel, 'database'));
     main.heading.replaceChildren(toolbar);
     const panel = make('div', 'api-manager-panel');
     const list = make('div', 'api-config-list');
@@ -343,7 +341,7 @@ function mountCatalogPanel(host, storage, connection) {
       for (const row of rows) if (allSelected) selectedRows.delete(row.id); else selectedRows.add(row.id);
       renderRows();
     });
-    selectList.className = 'selection-action selection-action--primary';
+    selectList.className = 'selection-action';
     const unassignedButton = button('未分类', () => {
       onlyUnassigned = !onlyUnassigned;
       unassignedButton.classList.toggle('active', onlyUnassigned);
@@ -466,6 +464,7 @@ function mountCatalogPanel(host, storage, connection) {
     tagPanel.append(heading, form, clearSelectedTags, grid);
     wrap.append(searchSection, toolbar, list, tagPanel);
     pane.scroll.append(wrap);
+    pane.footer.classList.add('catalog-tag-actions');
     pane.footer.append(closeButton(pane, '取消'), addTags, removeTags, clearTags);
     renderRows();
     renderTags();

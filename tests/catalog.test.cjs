@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
-const { createHash, webcrypto } = require('node:crypto');
+const { webcrypto } = require('node:crypto');
 const { url, categories, config, flatConfigs, legacyValues, grouped } = require('./catalog-fixture.cjs');
 
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -175,49 +175,39 @@ test('a subset import retains the conflicting group and its membership across ex
 });
 
 for (const mode of ['st', 'tt']) {
-  test(mode + ' resumes a verified legacy active pool in its original order on generation', async () => {
+  test(mode + ' ignores both legacy and previously applied rotation pools on generation', async () => {
     const catalog = api.migrateCatalog(grouped, categories);
-    // A deleted credential reimported from a legacy file ends up at the end
-    // of the catalog, but its original key index is still zero.
-    catalog.entries = [...catalog.entries.slice(1), catalog.entries[0]];
     const modelRows = catalog.entries.filter(row => row.model === 'same-model');
-    const pool = modelRows.map(row => ({
-      id: 'native-' + row.history.index, active: row.history.index === 0,
-      digest: createHash('sha256').update('api_key_custom\0' + row.key).digest('hex'),
-    }));
+    const [first] = modelRows;
+    const previous = {
+      appliedRowId: first.id,
+      active: { rowId: first.id, poolId: first.rotationPoolId, site: first.site,
+        source: first.source, url: first.url, model: first.model,
+        keys: modelRows.map(row => ({ rowId: row.id, id: 'native-' + row.history.index })) },
+      cursors: { [first.rotationPoolId]: 1 },
+    };
     const calls = [];
-    let listener;
-    let state = {};
+    const listeners = [];
     const host = {
       document: {}, crypto: webcrypto,
       ...(mode === 'tt' ? { __TAURITAVERN__: {} } : {}),
-      async fetch(path) {
-        calls.push(path);
-        return Response.json({ api_key_custom: pool.map(({ id, active }) => ({ id, active, value: 'masked' })) });
-      },
+      async fetch(path) { calls.push(path); },
     };
     const context = { eventTypes: { CHAT_COMPLETION_SETTINGS_READY: 'ready' },
-      eventSource: { makeFirst(name, callback) { assert.equal(name, 'ready'); listener = callback; } } };
-    const store = {
-      catalog,
-      legacyBindings: Object.fromEntries(pool.map(({ digest, id }) => [digest, id])),
-      get connectionState() { return state; },
-      async setConnectionState(connection) { state = plain(connection); },
-    };
-    const manager = api.createCatalogConnection(host, context, store);
+      eventSource: { makeFirst(name, callback) { listeners.push(callback); } } };
+    for (const connectionState of [{}, previous]) {
+      const manager = api.createCatalogConnection(host, context, {
+        catalog, connectionState,
+        async setConnectionState() { calls.push('persist'); },
+      });
+      assert.equal(manager.activeRowId(), connectionState.appliedRowId);
+      await assert.rejects(manager.apply({ ...first, model: '' }), /没有模型/);
+      const payload = { chat_completion_source: 'custom', custom_url: url, model: 'same-model', secret_id: 'untouched' };
+      for (const listener of listeners) await listener(payload);
+      assert.equal(payload.secret_id, 'untouched');
+    }
+    assert.deepEqual(listeners, []);
     assert.deepEqual(calls, []);
-    await assert.rejects(manager.apply({ ...modelRows[0], model: '' }), /没有模型/);
-    assert.deepEqual(calls, []);
-    const payload = { chat_completion_source: 'custom', custom_url: url, model: 'same-model', secret_id: 'untouched' };
-    await listener({ ...payload, model: 'different-model' });
-    assert.deepEqual(calls, []);
-    await listener(payload);
-    assert.equal(payload.secret_id, 'native-1', 'old cursor 1 selects the second credential despite catalog order');
-    assert.ok(calls.every(path => path === '/api/secrets/read'));
-    assert.equal(pool.find(entry => entry.active).id, 'native-0');
-    api.createCatalogConnection(host, context, store);
-    await listener(payload);
-    assert.equal(payload.secret_id, 'native-0', 'cursor survives restart');
   });
 
   test(mode + ' recovers an intact legacy pool and keeps it through an older account snapshot', async () => {

@@ -18,6 +18,13 @@ const capture = async (tab, name) => {
   fs.mkdirSync(preview, { recursive: true });
   await tab.screenshot({ path: path.join(preview, name + '.png'), animations: 'disabled' });
 };
+const assertOneRow = async (locator, count) => {
+  const boxes = await locator.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
+  assert.equal(boxes.length, count);
+  const centerY = box => box.top + box.height / 2;
+  assert.ok(boxes.every(box => Math.abs(centerY(box) - centerY(boxes[0])) < 1));
+  return boxes;
+};
 
 for (const mode of ['st', 'tt']) {
   test(mode + ': old panel and complete credential management keep the native connection isolated', { timeout: 90000 }, () => withBrowser(mode, async ({
@@ -27,6 +34,11 @@ for (const mode of ['st', 'tt']) {
     await open();
     await flush();
     const panel = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
+    const entry = tab.locator('#extensionsMenu > .extension_container > .list-group-item');
+    assert.equal(await entry.locator('.fa-plug').count(), 1);
+    await exactButton(panel, '关闭').click();
+    await entry.press('Enter');
+    await panel.waitFor();
     const rows = panel.locator('.secretKeyManagerItem');
     const initialIds = await rows.evaluateAll(cards => cards.map(card => card.dataset.entryId));
     assert.equal(initialIds.length, 2);
@@ -37,26 +49,27 @@ for (const mode of ['st', 'tt']) {
     assert.equal(await panel.getByRole('button', { name: '应用', exact: true }).count(), 2);
     assert.equal(await panel.getByText(/fixture-key-/).count(), 0);
     const layout = () => panel.evaluate(element => {
-      const toolbar = element.querySelector('.api-manager-toolbar');
       const box = element.getBoundingClientRect();
       const row = element.querySelector('.secretKeyManagerItem');
-      return { width: box.width, left: box.left, right: box.right, direction: getComputedStyle(toolbar).flexDirection,
+      return { width: box.width, left: box.left, right: box.right,
         overflow: element.scrollWidth > element.clientWidth, rowRadius: getComputedStyle(row).borderRadius,
         rowDirection: getComputedStyle(row).flexDirection };
     });
     await tab.setViewportSize({ width: 1280, height: 900 });
-    let desktop = await layout();
-    assert.equal(desktop.direction, 'row');
-    assert.ok(desktop.width >= 900 && desktop.left > 0 && desktop.right < 1280);
+    const desktop = await layout();
+    assert.equal(desktop.width, 800);
+    assert.ok(desktop.left > 0 && desktop.right < 1280);
     assert.equal(desktop.rowRadius, '10px');
     assert.equal(desktop.rowDirection, 'row');
     assert.equal(desktop.overflow, false);
     await capture(tab, mode + '-desktop');
+    await tab.setViewportSize({ width: 375, height: 812 });
+    await assertOneRow(panel.locator('.api-manager-toolbar > button'), 5);
     await tab.setViewportSize({ width: 390, height: 844 });
     const mobile = await layout();
-    assert.equal(mobile.direction, 'column');
-    assert.ok(mobile.width <= 374 && mobile.left >= 8 && mobile.right <= 382);
+    assert.ok(mobile.width <= 358 && mobile.left >= 16 && mobile.right <= 374);
     assert.equal(mobile.overflow, false);
+    await assertOneRow(panel.locator('.api-manager-toolbar > button'), 5);
     await capture(tab, mode + '-mobile');
     const firstDrawer = panel.locator('details.inline-drawer').first();
     await firstDrawer.locator('summary').click();
@@ -91,6 +104,9 @@ for (const mode of ['st', 'tt']) {
     await editor.waitFor({ state: 'hidden' });
 
     const tags = await openPane(tab, panel, '标签设置');
+    await assertOneRow(tags.locator('.selection-toolbar > button'), 3);
+    await assertOneRow(tags.locator('.catalog-tag-actions > button'), 4);
+    await capture(tab, mode + '-tag-settings-mobile');
     await tags.getByLabel('新分组名称').fill('第三组');
     await exactButton(tags, '新建分类').click();
     await expectText(tags, '已创建分组。');
@@ -120,6 +136,13 @@ for (const mode of ['st', 'tt']) {
     await exactButton(editor, '粘贴多行Key').click();
     await editor.getByLabel('每行一个 API Key').fill('fixture-new-a\nfixture-new-b');
     await exactButton(editor, '批量添加').click();
+    await assertOneRow(editor.locator('.key-batch-actions-row > button'), 2);
+    const buttons = await assertOneRow(editor.locator('.api-config-edit-modal__key-actions').first().locator('button'), 4);
+    assert.ok(buttons.every((box, i) => box.width >= 34 && box.height >= 34 &&
+      (i === 0 || box.left - buttons[i - 1].right >= 6)));
+    assert.equal(await editor.getByText(/Key 轮换/).count(), 0);
+    await editor.locator('.key-batch-actions-row').scrollIntoViewIfNeeded();
+    await capture(tab, mode + '-key-actions-mobile');
 
     const slow = holdNextModels('fixture-new-a');
     try {
@@ -161,7 +184,6 @@ for (const mode of ['st', 'tt']) {
     await editor.getByRole('checkbox', { name: 'only-a', exact: true }).waitFor();
     assert.equal(await editor.getByRole('checkbox', { name: 'only-b', exact: true }).count(), 0);
     await chooseModels('only-a', '第一组');
-    await editor.getByRole('checkbox', { name: '开启 Key 轮换', exact: true }).check();
     await exactButton(editor, '保存').click();
     await editor.waitFor({ state: 'hidden' });
     await exactButton(manager, '关闭').click();
@@ -190,7 +212,7 @@ for (const mode of ['st', 'tt']) {
     const created = exported.entries.filter(row => row.site === '示例站点');
     assert.equal(created.length, 6);
     assert.equal(new Set(created.map(row => row.id)).size, 6);
-    assert.equal(new Set(created.map(row => row.rotationPoolId)).size, 1);
+    assert.ok(created.every(row => !Object.hasOwn(row, 'rotationPoolId')));
     const expected = {
       'fixture-new-a': { 'shared-model': '第一组', 'second-shared': '第一组', 'only-a': '第三组' },
       'fixture-new-b': { 'shared-model': '第二组', 'second-shared': '第二组', 'only-b': '第三组' },
@@ -250,16 +272,13 @@ for (const mode of ['st', 'tt']) {
     const emit = (model, endpoint = secondShared.url) => tab.evaluate(({ model, endpoint }) => window.fixtureEmit({
       chat_completion_source: 'custom', custom_url: endpoint, model, secret_id: 'unmodified',
     }), { model, endpoint });
-    const beforeRotationWrites = secretCalls.filter(call => call.action !== 'read').length;
-    assert.equal((await emit('only-a')).secret_id, 'unmodified');
-    assert.equal((await emit('shared-model', 'https://other.invalid/v1')).secret_id, 'unmodified');
-    const rotatedA = (await emit('shared-model')).secret_id;
-    assert.equal(secrets.get('api_key_custom').find(item => item.id === rotatedA).key, 'fixture-new-a');
+    const beforeGeneration = secretCalls.length;
+    for (let i = 0; i < 2; i++) assert.equal((await emit('shared-model')).secret_id, 'unmodified');
     assert.equal(secrets.get('api_key_custom').find(item => item.active).id, selectedSecret);
-    assert.equal(secretCalls.filter(call => call.action !== 'read').length, beforeRotationWrites);
-    await apply(record('fixture-new-a', 'second-shared'), 4);
-    assert.equal((await emit('second-shared')).secret_id, selectedSecret, 'the next key follows the shared pool across models');
-    assert.equal(secrets.get('api_key_custom').find(item => item.active).id, rotatedA, 'rotation only affects the request');
+    assert.equal(secretCalls.length, beforeGeneration);
+    const manuallySelected = await apply(record('fixture-new-a', 'second-shared'), 4);
+    assert.equal((await emit('second-shared')).secret_id, 'unmodified');
+    assert.equal(secrets.get('api_key_custom').find(item => item.active).id, manuallySelected);
   }));
 
   test(mode + ': the account conflict dialog honors cancel, each choice, and a newer revision', { timeout: 45000 }, () => withBrowser(mode, async ({

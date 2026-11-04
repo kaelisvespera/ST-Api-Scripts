@@ -141,20 +141,6 @@ function openCatalogEditor(ui, rows, afterSave) {
       draft.result = error.message;
     }
   }
-  const existingPools = new Set(rows.map(row => row.rotationPoolId).filter(Boolean));
-  const rotation = make('input');
-  rotation.type = 'checkbox';
-  rotation.checked = existingPools.size === 1 && rows.every(row => !!row.rotationPoolId);
-  let rotationChanged = false;
-  rotation.addEventListener('change', () => { rotationChanged = true; });
-  const rotationLabel = make('label', 'st-native-switch-group');
-  const switchWrap = make('span', 'switch-wrapper');
-  const switchSlider = make('span', 'switch-slider');
-  switchSlider.setAttribute('aria-hidden', 'true');
-  switchWrap.append(rotation, switchSlider);
-  rotationLabel.append(switchWrap, make('span', 'switch-text', '开启 Key 轮换'));
-  field('Key 轮换', rotationLabel, '应用后，仅轮换该模型在同一密钥池中已绑定的 Key。');
-
   const discovery = make('div', 'st-native-actions');
   const pullKey = make('select', 'st-orb-select st-orb-select-auto');
   pullKey.setAttribute('aria-label', '拉取使用的密钥');
@@ -368,7 +354,9 @@ function openCatalogEditor(ui, rows, afterSave) {
       }, 'trash', true);
       details.append(input);
       if (draft.result) details.append(make('small', 'key-test-result', draft.result));
-      row.append(details, choose, testKey, reveal, remove);
+      const actions = make('div', 'api-config-edit-modal__key-actions');
+      actions.append(choose, testKey, reveal, remove);
+      row.append(details, actions);
       keyList.append(row);
     });
     pullKey.value = selected ? String(drafts.indexOf(selected)) : '';
@@ -404,7 +392,6 @@ function openCatalogEditor(ui, rows, afterSave) {
       if (addInput.value) incorporateKey();
       if (!drafts.length && !original) addDraft('');
       if (!drafts.length) throw new Error('请至少保留一个密钥栏，或从配置组列表删除该组。');
-      const enabledPool = rotation.checked && (existingPools.size === 1 ? existingPools.values().next().value : makeId());
       const changed = new Map();
       const added = [];
       for (const draft of drafts) {
@@ -419,7 +406,6 @@ function openCatalogEditor(ui, rows, afterSave) {
             name: note && item.row ? note.value.trim() : item.row?.name ?? '',
             groupIds: item.groupIds,
           };
-          if (rotationChanged || (!item.row && enabledPool)) row.rotationPoolId = enabledPool || null;
           if (item.row) changed.set(row.id, row);
           else added.push(row);
         }
