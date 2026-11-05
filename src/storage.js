@@ -3,6 +3,7 @@ const catalogKey = 'st_api_manager_catalog_v2';
 const legacyAccountKey = 'st_api_manager_sync_v1';
 const accountKey = 'st_api_manager_sync_v2';
 const connectionKey = 'st_api_manager_connection_v2';
+const uiKey = 'st_api_manager_ui_v1';
 const storageEntry = { namespace: managerNamespace, key: 'state' };
 const legacyStorageKeys = [
   'api_configs_manager', 'api_configs_categories', 'api_configs_collapsed_categories',
@@ -81,6 +82,10 @@ async function openCatalogStorage(host, context, browserStorage) {
       const data = JSON.parse(values[key] ?? '{}');
       return isObject(data) ? data : {};
     } catch { return {}; }
+  }
+  function collapsedGroups() {
+    const ids = savedObject(uiKey).collapsedGroups;
+    return Array.isArray(ids) ? ids.filter(id => id === null || isText(id)) : [];
   }
 
   // Historical names are evidence only. Match the exact old record, including
@@ -186,6 +191,13 @@ async function openCatalogStorage(host, context, browserStorage) {
     legacyTitleSite,
     get syncInfo() { return { ...state.sync }; },
     get connectionState() { return savedObject(connectionKey); },
+    get collapsedGroups() { return collapsedGroups(); },
+    setGroupCollapsed: (id, collapsed) => transact(() => {
+      const ids = new Set(collapsedGroups());
+      if (collapsed) ids.add(id);
+      else ids.delete(id);
+      return persist(state, { [uiKey]: JSON.stringify({ collapsedGroups: [...ids] }) });
+    }),
     get legacyBindings() { return savedObject('st_api_manager_tt_secret_bindings_v1'); },
     setConnectionState: connection => transact(() => persist(state, { [connectionKey]: JSON.stringify(connection) })),
     canSync,

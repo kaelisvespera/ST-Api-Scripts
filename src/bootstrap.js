@@ -36,16 +36,6 @@ async function startCatalogManager(host, browserStorage) {
     wrapper.append(item);
     extensionsMenu.append(wrapper);
   }
-  const connectionSettings = doc.getElementById('openai_settings');
-  if (connectionSettings && !doc.getElementById('st-api-manager-connection-button')) {
-    const button = doc.createElement('button');
-    button.id = 'st-api-manager-connection-button';
-    button.type = 'button';
-    button.className = 'menu_button interactable';
-    button.textContent = 'API 管理';
-    button.addEventListener('click', openFromMenu);
-    connectionSettings.append(button);
-  }
   const callback = async () => { open(); return ''; };
   if (context.SlashCommandParser && context.SlashCommand) {
     context.SlashCommandParser.addCommandObject(context.SlashCommand.fromProps({ name: 'st-api-manager', callback, helpString: '打开 API 管理器' }));

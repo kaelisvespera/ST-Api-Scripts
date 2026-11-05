@@ -97,7 +97,27 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager details[open] > .inline-drawer-content { display: block; }
 .st-api-manager details:not([open]) > .inline-drawer-content { display: none; }
 .st-api-manager .inline-drawer-header .flex-container { display: flex; align-items: center; }
-.st-api-manager .catalog-tag-label { display: inline-flex; align-items: center; gap: 4px; }
+.st-api-manager .category-tag {
+  display: inline-flex; flex-wrap: nowrap; gap: 5px; min-width: 0; max-width: 100%;
+  height: auto; margin: 0; border-radius: 1em; white-space: normal;
+}
+.st-api-manager .catalog-tag-label { display: inline-flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; max-width: 100%; cursor: pointer; }
+.st-api-manager .catalog-tag-label > input,
+.st-api-manager .catalog-tag-label > .category-color-dot { flex-shrink: 0; }
+.st-api-manager .category-tag .category-tag-name { min-width: 0; overflow: visible; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.st-api-manager .category-tag > .category-tag-delete {
+  position: static; flex: 0 0 auto; width: auto; height: auto; min-width: 26px;
+  margin: 0; padding: 3px 5px;
+}
+.st-api-manager .import-mode-modal { display: flex; flex-direction: column; gap: 10px; }
+.st-api-manager .import-mode-modal > p { margin: 0; }
+.st-api-manager .import-mode-modal > .import-mode-option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  flex: none; width: 100%; min-width: 0; height: auto; margin: 0;
+  padding: 10px 12px; line-height: 1.4; white-space: normal; text-align: left;
+  border: 1px solid var(--SmartThemeBorderColor) !important; overflow-wrap: anywhere;
+}
+.st-api-manager .import-mode-option > small { display: block; white-space: normal; font-size: var(--st-orb-font-sm); }
 .st-api-manager .catalog-model-tags { flex-basis: 100%; padding-inline: 4px; font-size: var(--st-orb-font-sm); }
 .st-api-manager .catalog-model-tags summary { cursor: pointer; }
 .st-api-manager .catalog-model-tags .category-tag-grid { margin-top: 4px; }

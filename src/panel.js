@@ -81,7 +81,8 @@ function mountCatalogPanel(host, storage, connection) {
   main.footer.append(version, closeButton(main));
   const categoryFilter = new Set();
   const siteFilter = new Set();
-  const collapsed = new Set();
+  const unassigned = Symbol('uncategorized');
+  const collapsed = new Set(storage.collapsedGroups.map(id => id === null ? unassigned : id));
   const toolbar = make('div', 'api-manager-toolbar');
   const filter = button('筛选', filters, 'filter');
   filter.setAttribute('aria-label', '筛选');
@@ -91,7 +92,6 @@ function mountCatalogPanel(host, storage, connection) {
   toolbar.append(button('API 管理', manager, 'layer-group'), button('标签设置', tagSettings, 'tags'),
     filter, button('检测', detection, 'bolt'), button('数据', dataPanel, 'database'));
   main.heading.append(toolbar);
-  const unassigned = Symbol('uncategorized');
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
   const rowTitle = row => row.model ? '[' + row.site + '] ' + row.model : row.site;
   function displayAlias(row) {
@@ -285,10 +285,14 @@ function mountCatalogPanel(host, storage, connection) {
       arrow.classList.add('inline-drawer-icon');
       header.append(label, arrow);
       drawer.addEventListener('toggle', () => {
+        if (!drawer.isConnected) return;
+        const changed = collapsed.has(section.id) === drawer.open;
         if (drawer.open) collapsed.delete(section.id);
         else collapsed.add(section.id);
         arrow.classList.toggle('fa-circle-chevron-up', drawer.open);
         arrow.classList.toggle('fa-circle-chevron-down', !drawer.open);
+        if (changed) void storage.setGroupCollapsed(isUnassigned ? null : section.id, !drawer.open)
+          .catch(error => { main.status.textContent = error.message; });
       });
       const wrap = make('div', 'inline-drawer-content');
       const cards = make('div', 'secretKeyManagerList');
@@ -603,7 +607,7 @@ function mountCatalogPanel(host, storage, connection) {
       });
       if (!decoded) return;
       const child = popup('导入方式', 'small');
-      const options = make('div', 'import-mode-modal import-mode-options');
+      const options = make('div', 'import-mode-modal');
       options.append(make('p', '', '选择如何将文件中的配置导入目录'));
       for (const [label, detail, replace] of [
         ['合并导入', '保留本机配置并合并文件中的条目', false],
