@@ -191,12 +191,29 @@ async function openCatalogStorage(host, context, browserStorage) {
     legacyTitleSite,
     get syncInfo() { return { ...state.sync }; },
     get connectionState() { return savedObject(connectionKey); },
+    get entryPoints() {
+      const value = savedObject(uiKey).entryPoints;
+      return value && typeof value.wand === 'boolean' && typeof value.qr === 'boolean' && (value.wand || value.qr)
+        ? { wand: value.wand, qr: value.qr } : { wand: true, qr: false };
+    },
+    setEntryPoints: preference => transact(async () => {
+      if (typeof preference?.wand !== 'boolean' || typeof preference?.qr !== 'boolean' || !(preference.wand || preference.qr)) {
+        throw new Error('请至少选择一个入口。');
+      }
+      await persist(state, { [uiKey]: JSON.stringify({ ...savedObject(uiKey), entryPoints: { wand: preference.wand, qr: preference.qr } }) });
+      if (host.dispatchEvent) host.dispatchEvent(new host.Event('st-api-manager-entry-points-changed'));
+    }),
+    get qrSetName() {
+      const name = savedObject(uiKey).qrSetName;
+      return typeof name === 'string' && name.startsWith('API Manager - ') ? name : null;
+    },
+    setQrSetName: name => transact(() => persist(state, { [uiKey]: JSON.stringify({ ...savedObject(uiKey), qrSetName: name }) })),
     get collapsedGroups() { return collapsedGroups(); },
     setGroupCollapsed: (id, collapsed) => transact(() => {
       const ids = new Set(collapsedGroups());
       if (collapsed) ids.add(id);
       else ids.delete(id);
-      return persist(state, { [uiKey]: JSON.stringify({ collapsedGroups: [...ids] }) });
+      return persist(state, { [uiKey]: JSON.stringify({ ...savedObject(uiKey), collapsedGroups: [...ids] }) });
     }),
     get legacyBindings() { return savedObject('st_api_manager_tt_secret_bindings_v1'); },
     setConnectionState: connection => transact(() => persist(state, { [connectionKey]: JSON.stringify(connection) })),

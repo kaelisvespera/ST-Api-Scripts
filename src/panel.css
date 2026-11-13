@@ -571,3 +571,19 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 @media (max-width: 480px) {
   .st-api-manager .key-add-row .key-add-input { max-width: 100%; }
 }
+
+/* Keep sorting separate from connection actions, with full-size touch targets. */
+.st-api-manager .catalog-sort-controls { display:flex; align-items:center; gap:5px; flex:0 0 auto; }
+.st-api-manager .catalog-sort-controls button { min-width:32px; min-height:32px; margin:0; padding:4px 6px; }
+.st-api-manager .catalog-sort-handle { touch-action:none; cursor:grab; }
+.st-api-manager .catalog-sort-handle:active { cursor:grabbing; }
+.st-api-manager .catalog-config-card > .catalog-sort-controls { width:100%; justify-content:flex-end; }
+.st-api-manager .catalog-sorting { opacity:.65; }
+.st-api-manager .catalog-sort-before { box-shadow:0 -3px 0 var(--SmartThemeQuoteColor) !important; }
+.st-api-manager .catalog-sort-after { box-shadow:0 3px 0 var(--SmartThemeQuoteColor) !important; }
+.st-api-manager .catalog-sort-tags { flex-direction:column; flex-wrap:nowrap; overflow:visible; }
+.st-api-manager .catalog-sort-tags > .category-tag { display:grid; grid-template-columns:minmax(0,1fr) auto auto; width:100%; max-width:100%; border-radius:8px; }
+.st-api-manager .catalog-sort-tags .catalog-sort-controls { grid-column:1 / -1; }
+.st-api-manager .catalog-entry-options { min-width:0; display:flex; flex-direction:column; gap:8px; border:1px solid var(--SmartThemeBorderColor); border-radius:8px; }
+.st-api-manager .catalog-entry-options label { display:flex; align-items:center; gap:8px; }
+.st-api-manager .catalog-entry-options p { margin:0; }

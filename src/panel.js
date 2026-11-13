@@ -119,6 +119,99 @@ function mountCatalogPanel(host, storage, connection) {
   function save(pane, change, message, done = refresh) {
     return run(pane, () => storage.update(change), message, done);
   }
+  // Reorder only through dedicated controls. The rest of each row keeps its
+  // normal touch scrolling, selection and apply/edit behavior.
+  function sortable(pane, list, items, commit) {
+    const nodes = [...list.children];
+    const move = (from, to) => {
+      if (busy || from === to || to < 0 || to >= items.length) return;
+      const ids = items.map(item => item.id);
+      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      commit(ids, items[from].id);
+    };
+    nodes.forEach((node, index) => {
+      const controls = make('div', 'catalog-sort-controls');
+      const handle = button('拖动排序：' + items[index].name, null, 'grip-vertical', true);
+      handle.classList.add('catalog-sort-handle');
+      handle.title += '（也可按上下方向键）';
+      const up = button('上移：' + items[index].name, () => move(index, index - 1), 'arrow-up', true);
+      const down = button('下移：' + items[index].name, () => move(index, index + 1), 'arrow-down', true);
+      up.disabled = index === 0;
+      down.disabled = index === nodes.length - 1;
+      handle.disabled = nodes.length < 2;
+      controls.append(handle, up, down);
+      node.prepend(controls);
+      handle.addEventListener('keydown', event => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        event.preventDefault();
+        move(index, index + (event.key === 'ArrowUp' ? -1 : 1));
+      });
+      handle.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); });
+      handle.addEventListener('pointerdown', event => {
+        if (busy || !event.isPrimary || event.button !== 0) return;
+        event.preventDefault();
+        handle.focus({ preventScroll: true });
+        const pointerId = event.pointerId;
+        const startY = event.clientY;
+        let target = index, dragging = false, frame = 0, lastPointer;
+        const clearMarks = () => nodes.forEach(row => row.classList.remove('catalog-sort-before', 'catalog-sort-after'));
+        const update = e => {
+          if (e.pointerId !== pointerId) return;
+          if (!dragging && Math.abs(e.clientY - startY) < 5) return;
+          dragging = true;
+          lastPointer = e;
+          if (!frame) frame = host.requestAnimationFrame(scrollFrame);
+          node.classList.add('catalog-sorting');
+          clearMarks();
+          const bounds = list.getBoundingClientRect();
+          const viewport = pane.scroll.getBoundingClientRect();
+          if (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < viewport.top || e.clientY > viewport.bottom) {
+            target = index; return;
+          }
+          const others = nodes.filter(row => row !== node);
+          let slot = others.findIndex(row => { const box = row.getBoundingClientRect(); return e.clientY < box.top + box.height / 2; });
+          if (slot < 0) slot = others.length;
+          target = slot;
+          if (target !== index) {
+            const marker = others[slot] ?? others[others.length - 1];
+            marker?.classList.add(slot < others.length ? 'catalog-sort-before' : 'catalog-sort-after');
+          }
+        };
+        const scrollFrame = () => {
+          if (!node.isConnected || !pane.dialog.open) { finish(false); return; }
+          const viewport = pane.scroll.getBoundingClientRect();
+          const bounds = list.getBoundingClientRect();
+          const { clientX: x, clientY: y } = lastPointer;
+          const speed = x < bounds.left || x > bounds.right || y < viewport.top || y > viewport.bottom ? 0
+            : y < viewport.top + 36 ? -10 : y > viewport.bottom - 36 ? 10 : 0;
+          if (speed) { pane.scroll.scrollTop += speed; update(lastPointer); }
+          frame = host.requestAnimationFrame(scrollFrame);
+        };
+        const finish = apply => {
+          host.cancelAnimationFrame(frame); frame = 0;
+          handle.removeEventListener('pointermove', update);
+          handle.removeEventListener('pointerup', release);
+          handle.removeEventListener('pointercancel', cancel);
+          handle.removeEventListener('lostpointercapture', cancel);
+          doc.removeEventListener('keydown', escape, true);
+          pane.dialog.removeEventListener('close', cancel);
+          clearMarks(); node.classList.remove('catalog-sorting');
+          if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+          if (apply && dragging && node.isConnected) move(index, target);
+        };
+        const release = e => { if (e.pointerId === pointerId) { update(e); finish(true); } };
+        const cancel = () => finish(false);
+        const escape = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); } };
+        handle.addEventListener('pointermove', update);
+        handle.addEventListener('pointerup', release);
+        handle.addEventListener('pointercancel', cancel);
+        handle.addEventListener('lostpointercapture', cancel);
+        doc.addEventListener('keydown', escape, true);
+        pane.dialog.addEventListener('close', cancel);
+        handle.setPointerCapture(pointerId);
+      });
+    });
+  }
   function deleteRows(pane, rows, message, done = refresh) {
     if (!host.confirm(message)) return;
     const ids = new Set(rows.map(row => row.id));
@@ -265,12 +358,12 @@ function mountCatalogPanel(host, storage, connection) {
     const panel = make('div', 'api-manager-panel');
     const list = make('div', 'api-config-list');
     panel.append(list);
-    const matches = entries.filter(row => !siteFilter.size || siteFilter.has(siteId(row)));
     const sections = [{ id: unassigned, name: '未分类' }, ...groups];
     for (const section of sections) {
       const isUnassigned = section.id === unassigned;
       if (categoryFilter.size && !categoryFilter.has(section.id)) continue;
-      const rows = matches.filter(row => isUnassigned ? !row.groupIds.length : row.groupIds.includes(section.id));
+      const rows = orderedGroupEntries(storage.catalog, isUnassigned ? null : section.id)
+        .filter(row => !siteFilter.size || siteFilter.has(siteId(row)));
       if (!rows.length && isUnassigned) continue;
       const drawer = make('details', 'inline-drawer');
       drawer.open = !collapsed.has(section.id);
@@ -298,6 +391,13 @@ function mountCatalogPanel(host, storage, connection) {
       const cards = make('div', 'secretKeyManagerList');
       if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, presentations.get(row.id))));
       else cards.append(make('p', 'st-orb-empty-state', '此标签暂无配置'));
+      if (rows.length) sortable(main, cards, rows.map(row => ({ id: row.id, name: row.model || row.site })), (ids, movedId) => {
+        save(main, catalog => reorderGroupEntries(catalog, isUnassigned ? null : section.id, ids),
+          '已保存此分组内的顺序。', () => {
+            refresh();
+            focusRowAction({ id: movedId }, isUnassigned ? undefined : section, '.catalog-sort-handle');
+          });
+      });
       wrap.append(cards);
       drawer.append(header, wrap);
       list.append(drawer);
@@ -534,7 +634,8 @@ function mountCatalogPanel(host, storage, connection) {
         ...catalog, groups: [...catalog.groups, { id: makeId(), name: value, color: color.value }],
       }), '已创建分组。', () => { name.value = ''; renderTags(); refresh(); });
     });
-    const grid = make('div', 'category-tag-grid');
+    const grid = make('div', 'category-tag-grid catalog-sort-tags');
+    heading.append(make('small', 'st-native-hint', '拖动排序柄或使用上下按钮，调整主界面的分组顺序。'));
     function renderTags() {
       grid.replaceChildren();
       for (const group of storage.catalog.groups) {
@@ -556,9 +657,20 @@ function mountCatalogPanel(host, storage, connection) {
         }, 'trash', true);
         rename.classList.add('category-tag-delete');
         remove.classList.add('category-tag-delete');
-        grid.append(tagOption(group, control, [rename, remove]));
+        const tag = tagOption(group, control, [rename, remove]);
+        tag.dataset.sortId = group.id;
+        grid.append(tag);
       }
       if (!grid.childElementCount) grid.append(make('p', 'category-tag-grid__empty', '暂无标签'));
+      else sortable(pane, grid, storage.catalog.groups, (ids, movedId) => {
+        save(pane, catalog => {
+          const byId = new Map(catalog.groups.map(group => [group.id, group]));
+          return { ...catalog, groups: ids.map(id => byId.get(id)) };
+        }, '已保存标签和主界面的分组顺序。', () => {
+          renderTags(); refresh();
+          [...grid.children].find(node => node.dataset.sortId === movedId)?.querySelector('.catalog-sort-handle')?.focus();
+        });
+      });
       setCount();
     }
     function editTag(group) {
@@ -595,6 +707,33 @@ function mountCatalogPanel(host, storage, connection) {
   function dataPanel() {
     const pane = popup('数据', 'small');
     const wrap = make('div', 'data-actions-modal');
+    const entryOptions = make('fieldset', 'catalog-entry-options');
+    entryOptions.append(make('legend', '', '入口设置'));
+    const entryStatus = make('p', 'st-native-hint');
+    const entryRadios = [];
+    const renderEntryOptions = () => {
+      const current = storage.entryPoints;
+      for (const [input, value] of entryRadios) input.checked = current.wand === value.wand && current.qr === value.qr;
+      entryStatus.textContent = storage.entryPointStatus.message;
+    };
+    for (const [label, value] of [['魔法棒入口', { wand: true, qr: false }],
+      ['QR 入口', { wand: false, qr: true }], ['同时启用', { wand: true, qr: true }]]) {
+      const row = make('label');
+      const input = make('input');
+      input.type = 'radio'; input.name = 'catalog-entry-point';
+      input.addEventListener('change', async () => {
+        if (!input.checked) return;
+        await run(pane, () => storage.setEntryPoints(value), '已保存入口设置。');
+        renderEntryOptions();
+      });
+      entryRadios.push([input, value]);
+      row.append(input, make('span', '', label)); entryOptions.append(row);
+    }
+    entryOptions.append(entryStatus, make('small', 'st-native-hint', '也可输入 /st-api-manager 打开。入口设置保存在当前酒馆，不随目录导出或账户同步。'));
+    host.addEventListener('st-api-manager-entry-status-changed', renderEntryOptions);
+    pane.dialog.addEventListener('close', () => host.removeEventListener('st-api-manager-entry-status-changed', renderEntryOptions), { once: true });
+    renderEntryOptions();
+    wrap.append(entryOptions);
     const file = fieldInput('', '导入配置文件', { type: 'file', accept: '.json,application/json' });
     file.className = 'data-actions-file-input';
     file.addEventListener('change', async () => {

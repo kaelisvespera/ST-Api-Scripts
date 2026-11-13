@@ -40,7 +40,45 @@ function validateCatalog(value) {
     }
     entries.add(row.id);
   }
-  return value;
+  return normalizeGroupOrders(value);
+}
+
+// Ordering is per label, not part of model or credential record identity.
+function normalizeGroupOrders(catalog) {
+  if (!Object.hasOwn(catalog, 'groupOrders')) return catalog;
+  const allowed = new Map([[null, new Set()], ...catalog.groups.map(group => [group.id, new Set()])]);
+  for (const row of catalog.entries) {
+    for (const id of row.groupIds.length ? row.groupIds : [null]) allowed.get(id)?.add(row.id);
+  }
+  const seen = new Set();
+  const groupOrders = [];
+  for (const order of Array.isArray(catalog.groupOrders) ? catalog.groupOrders : []) {
+    if (!isObject(order) || !allowed.has(order.groupId) || seen.has(order.groupId) || !Array.isArray(order.entryIds)) continue;
+    seen.add(order.groupId);
+    const entryIds = labels(order.entryIds).filter(id => allowed.get(order.groupId).has(id));
+    if (entryIds.length) groupOrders.push({ groupId: order.groupId, entryIds });
+  }
+  return { ...catalog, groupOrders };
+}
+
+function orderedGroupEntries(catalog, groupId) {
+  const rows = catalog.entries.filter(row => groupId === null ? !row.groupIds.length : row.groupIds.includes(groupId));
+  const order = normalizeGroupOrders(catalog).groupOrders?.find(order => order.groupId === groupId)?.entryIds ?? [];
+  const byId = new Map(rows.map(row => [row.id, row]));
+  const result = order.filter(id => byId.has(id)).map(id => byId.get(id));
+  const placed = new Set(result.map(row => row.id));
+  return [...result, ...rows.filter(row => !placed.has(row.id))];
+}
+
+function reorderGroupEntries(catalog, groupId, visibleIds) {
+  const rows = orderedGroupEntries(catalog, groupId);
+  const allowed = new Set(rows.map(row => row.id));
+  const selected = labels(visibleIds).filter(id => allowed.has(id));
+  const slots = new Set(selected);
+  let index = 0;
+  const entryIds = rows.map(row => slots.has(row.id) ? selected[index++] : row.id);
+  const groupOrders = (normalizeGroupOrders(catalog).groupOrders ?? []).filter(order => order.groupId !== groupId);
+  return { ...catalog, groupOrders: [...groupOrders, { groupId, entryIds }] };
 }
 
 function migrateCatalog(configs, categories = []) {
@@ -201,7 +239,22 @@ function mergeCatalogs(local, incoming, legacy = false) {
       if (matches?.size === 1) entries[index] = { ...row, rotationPoolId: matches.values().next().value };
     }
   }
-  return pruneKeyNotes({ ...local, entries, groups, keyNotes: notes.map(({ scope, ...note }) => note) });
+  let merged = { ...local, entries, groups, keyNotes: notes.map(({ scope, ...note }) => note) };
+  if (local.groupOrders || incoming.groupOrders) {
+    // Local ordering wins; incoming-only rows append in the incoming order.
+    // Map both group and entry IDs after conflict copies have been resolved.
+    merged.groupOrders = [null, ...groups.map(group => group.id)].map(groupId => {
+      const existing = orderedGroupEntries(local, groupId).map(row => row.id);
+      const added = [];
+      for (const sourceId of [null, ...incoming.groups.map(group => group.id)]) {
+        if ((sourceId === null ? null : groupIds.get(sourceId)) !== groupId) continue;
+        added.push(...orderedGroupEntries(incoming, sourceId).map(row => ids.get(row.id)));
+      }
+      return { groupId, entryIds: labels([...existing, ...added]) };
+    });
+    merged = normalizeGroupOrders(merged);
+  }
+  return pruneKeyNotes(merged);
 }
 
 function recoverLegacyRotation(catalog, configs, categories) {
@@ -338,4 +391,4 @@ async function sendCatalogTest(config, request) {
   return output;
 }
 
-export { emptyCatalog, readCatalog, migrateCatalog, mergeCatalogs, validateCatalog, discoverModels };
+export { orderedGroupEntries, reorderGroupEntries, emptyCatalog, readCatalog, migrateCatalog, mergeCatalogs, validateCatalog, discoverModels };

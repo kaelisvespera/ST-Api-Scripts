@@ -1,12 +1,13 @@
 # ST-Api-Scripts
 
-SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文对应 **2.2.8**。
+SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文对应 **2.2.9**。
 
 ## 使用
 
-原生扩展通过酒馆的「扩展 → 安装扩展」安装，地址为 [kaelisvespera/ST-Api-Scripts](https://github.com/kaelisvespera/ST-Api-Scripts)。升级时先停用旧 API 管理器脚本，再刷新酒馆。原有配置无需删除。通过魔法棒扩展菜单的「API 管理」打开，也可使用 `/st-api-manager`。
+原生扩展通过酒馆的「扩展 → 安装扩展」安装，地址为 [kaelisvespera/ST-Api-Scripts](https://github.com/kaelisvespera/ST-Api-Scripts)。升级时先停用旧 API 管理器脚本，再刷新酒馆。原有配置无需删除。通过魔法棒扩展菜单的「API 管理」打开，也可使用 `/st-api-manager`。在「数据 → 入口设置」选择魔法棒、QR（Quick Reply）或同时启用。QR 使用酒馆的 Quick Reply 功能；该功能不可用或未启用时，魔法棒入口会保留。
 
-- 主面板沿用 API 管理、标签设置、筛选、检测和数据工具栏，配置按标签折叠展示。每个分组和「未分类」的展开状态保存在当前设备，重启后恢复。通过「API 管理」可新增或编辑一个站点的多把 Key 和多个模型。
+- 主面板沿用 API 管理、标签设置、筛选、检测和数据工具栏，配置按标签折叠展示。每个分组和「未分类」的展开状态保存在当前酒馆，重启后恢复。通过「API 管理」可新增或编辑一个站点的多把 Key 和多个模型。
+- 在「标签设置」拖动排序柄，可调整主界面标签分组顺序。在主界面拖动卡片排序柄，可调整当前分组内的配置顺序。也可使用上移、下移按钮。排序会保存；同一配置在多个标签中的顺序分别记录。筛选时只调整可见配置的顺序，隐藏配置保留原位置。
 - 「拉取模型」使用表单当前选中的 Key，未选时用列表第一把。每把 Key 各有模型列表，可多选模型并为每条配置选标签。同 URL、同模型下的不同 Key 独立保存。站点若限制跨域访问，可手动填写模型。
 - 在密钥掩码下方填写「密钥备注」，在各个模型 ID 下方填写「模型备注」。例如给一把 Key 写「CCMAX」，再给它下面的某个模型写「0.5/次」。同一配置组内同一条密钥记录的模型共享密钥备注，每条模型各自保存模型备注。清空后点「保存」可移除备注。旧「条目备注」仍可在单条编辑中使用。
 - 卡片上方显示模型、当前组名和两级备注。组名与备注同字号，长内容可换行。点模型名可查看完整详情和原条目标题。底部沿用旧版图标按钮，可直接应用、编辑、管理分组和删除。带标签的卡片还可移出当前分组。
@@ -23,10 +24,10 @@ SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文�
 ```sh
 node tools/build.cjs
 node --experimental-vm-modules --test tests/*.test.cjs
-node --test tests/native-extension.browser.cjs tests/iframe-realm.browser.cjs tests/drawer-return.browser.cjs tests/ui-state-layout.browser.cjs
+node --test tests/*.browser.cjs
 ```
 
-本地通过 29 项 Node 回归和 16 项 Edge 浏览器测试。浏览器验收使用 ST、TT 和旧 TT iframe 的隔离夹具，覆盖编辑返回后的分组展开、重载后恢复分组状态，以及大字号下的导入选项和长标签排版。视口包含 320px 手机、平板、横屏和桌面。手机和真实服务商尚待实测。原生安装无需酒馆助手，五个旧导入 JSON 对应历史脚本版本。
+本地通过 48 项 Node 回归和 25 项 Edge 浏览器测试。另以 ST、TT 原生及旧 TT iframe 三种夹具验证了实际上游 Quick Reply API 与集合类。浏览器验收使用 ST、TT 和旧 TT iframe 的隔离夹具，覆盖拖动、触摸与边缘自动滚动、取消、保存失败重试、筛选后排序、重载与账户同步，以及 QR 入口切换、延迟加载和用户集合保护。既有编辑返回、分组展开、导入和长标签排版回归保持通过。视口包含 320px 手机、平板、横屏和桌面。手机和真实服务商尚待实测。原生安装无需酒馆助手，五个旧导入 JSON 对应历史脚本版本。
 
 ## 来源与许可证
 
