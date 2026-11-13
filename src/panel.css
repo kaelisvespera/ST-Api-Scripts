@@ -487,7 +487,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 :where(.st-api-manager) .secretKeyManagerItem { border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 18%, transparent) !important;   padding: 5px 10px 5px 12px;   border-radius: 10px;   background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 92%, var(--SmartThemeBodyColor)) !important;   color: var(--SmartThemeBodyColor) !important;   display: flex;   flex-direction: row;   align-items: center;   position: relative;   overflow: hidden;   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
 :where(.st-api-manager) .secretKeyManagerItem--selected { border-color: color-mix(in srgb, var(--SmartThemeQuoteColor) 42%, transparent) !important;   background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 86%, var(--SmartThemeQuoteColor)) !important;   color: var(--SmartThemeBodyColor) !important; }
 .st-api-manager .catalog-config-card {
-  display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; align-items: stretch; padding: 8px 10px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-items: stretch; padding: 6px 8px;
 }
 .st-api-manager .catalog-card-title {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -500,7 +500,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 }
 .st-api-manager .catalog-card-title > i { flex: 0 0 auto; opacity: .65; }
 .st-api-manager .catalog-card-model {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
   min-width: 0; overflow: hidden; overflow-wrap: anywhere;
 }
 .st-api-manager .catalog-card-meta {
@@ -522,21 +522,21 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-card-alias { color: var(--st-orb-primary); }
 .st-api-manager .catalog-config-card .catalog-card-site,
 .st-api-manager .catalog-config-card .catalog-card-alias {
-  overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .st-api-manager .catalog-config-card .catalog-card-site,
 .st-api-manager .catalog-card-notes { font-size: var(--st-orb-font-base); line-height: 1.35; }
 .st-api-manager .catalog-config-card .catalog-card-site { font-weight: 500; }
 .st-api-manager .catalog-card-notes {
-  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px;
+  display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 5px;
   margin: 0; padding-inline: 2px;
 }
 .st-api-manager .catalog-card-notes dt { color: color-mix(in srgb, currentColor 76%, transparent); }
 .st-api-manager .catalog-card-notes dd {
-  min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+  min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .st-api-manager .catalog-card-actions {
-  display: flex; flex-wrap: wrap; gap: 5px;
+  display: flex; flex-wrap: nowrap; gap: 5px;
   margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--st-orb-border-soft);
 }
 .st-api-manager .catalog-card-actions > .menu_button_icon {
@@ -587,3 +587,30 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-entry-options { min-width:0; display:flex; flex-direction:column; gap:8px; border:1px solid var(--SmartThemeBorderColor); border-radius:8px; }
 .st-api-manager .catalog-entry-options label { display:flex; align-items:center; gap:8px; }
 .st-api-manager .catalog-entry-options p { margin:0; }
+
+/* Compact cards inherit host colors in both everyday and sorting modes. */
+.st-api-manager .catalog-config-card .catalog-card-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
+.st-api-manager .catalog-config-card .catalog-card-site { flex: 0 1 auto; }
+.st-api-manager .catalog-config-card .catalog-card-alias { grid-column: 1 / -1; }
+.st-api-manager .catalog-key-label, .st-api-manager .active-badge-sm { flex-shrink: 0; }
+.st-api-manager .catalog-card-actions > .menu_button_icon { flex: 0 1 36px; min-width: 28px; min-height: 34px; padding: 4px; }
+.st-api-manager .catalog-card-actions > button:last-child { margin-inline-start: auto; }
+.st-api-manager .catalog-card-expanded .catalog-card-model { display: block; overflow-wrap: anywhere; }
+.st-api-manager .catalog-card-expanded .catalog-card-title > i { transform: rotate(90deg); }
+.st-api-manager .catalog-card-expanded .catalog-card-meta { display: flex; flex-wrap: wrap; }
+.st-api-manager .catalog-card-expanded .catalog-card-site,
+.st-api-manager .catalog-card-expanded .catalog-card-alias,
+.st-api-manager .catalog-card-expanded .catalog-card-notes dd { white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }
+.st-api-manager .catalog-card-details { justify-self: start; font-size: var(--st-orb-font-sm); }
+.st-api-manager .catalog-card-details[hidden] { display: none; }
+.st-api-manager .catalog-card-sort-mode .secretKeyManagerItemActions { display: none; }
+.st-api-manager .catalog-config-card > .catalog-sort-controls { border-top: 1px solid var(--st-orb-border-soft); padding-top: 6px; margin-top: 2px; }
+.st-api-manager .catalog-config-card .catalog-sort-handle { margin-inline-end: auto; }
+.st-api-manager .catalog-sort-controls button:focus-visible,
+.st-api-manager .catalog-sort-toggle:focus-visible { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px; }
+.st-api-manager .catalog-sort-toggle { flex-shrink: 0; min-height: 32px; margin: 0; }
+.st-api-manager .inline-drawer-header .flex-container { min-width: 0; }
+.st-api-manager .inline-drawer-header b { overflow-wrap: anywhere; min-width: 0; }
+.st-api-manager .catalog-sort-help { margin: 0 0 6px; font-size: var(--st-orb-font-sm); }
+
+.st-api-manager .catalog-config-card { border-color: var(--SmartThemeBorderColor) !important; }

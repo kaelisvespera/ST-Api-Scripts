@@ -82,6 +82,20 @@ function mountCatalogPanel(host, storage, connection) {
   const categoryFilter = new Set();
   const siteFilter = new Set();
   const unassigned = Symbol('uncategorized');
+  let sortingGroup;
+  const expandedRows = new Set();
+  const groupKey = group => group?.id ?? unassigned;
+  const focusSortToggle = id => [...main.scroll.querySelectorAll('.catalog-sort-toggle')]
+    .find(control => control.dataset.groupId === (id === unassigned ? '' : id))?.focus();
+  main.dialog.addEventListener('cancel', event => {
+    if (sortingGroup === undefined || busy) return;
+    event.preventDefault();
+    const previous = sortingGroup;
+    sortingGroup = undefined;
+    refresh();
+    focusSortToggle(previous);
+  });
+  main.dialog.addEventListener('close', () => { sortingGroup = undefined; expandedRows.clear(); });
   const collapsed = new Set(storage.collapsedGroups.map(id => id === null ? unassigned : id));
   const toolbar = make('div', 'api-manager-toolbar');
   const filter = button('筛选', filters, 'filter');
@@ -140,7 +154,8 @@ function mountCatalogPanel(host, storage, connection) {
       down.disabled = index === nodes.length - 1;
       handle.disabled = nodes.length < 2;
       controls.append(handle, up, down);
-      node.prepend(controls);
+      if (node.classList.contains('catalog-config-card')) node.append(controls);
+      else node.prepend(controls);
       handle.addEventListener('keydown', event => {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
         event.preventDefault();
@@ -301,11 +316,19 @@ function mountCatalogPanel(host, storage, connection) {
     card.dataset.groupId = group?.id ?? '';
     const title = make('button', 'catalog-card-title');
     title.type = 'button';
-    title.setAttribute('aria-haspopup', 'dialog');
+    const expansionKey = JSON.stringify([row.id, group?.id ?? null]);
+    const expanded = expandedRows.has(expansionKey);
+    card.classList.toggle('catalog-card-expanded', expanded);
+    title.setAttribute('aria-expanded', String(expanded));
+    title.title = '展开或收起完整信息';
     title.append(make('span', 'catalog-card-model', row.model || '未选择模型'), icon('angle-right'));
     title.addEventListener('click', () => {
       title.focus({ preventScroll: true });
-      showRowDetails(row, presentation);
+      const next = !expandedRows.has(expansionKey);
+      if (next) expandedRows.add(expansionKey); else expandedRows.delete(expansionKey);
+      card.classList.toggle('catalog-card-expanded', next);
+      title.setAttribute('aria-expanded', String(next));
+      details.hidden = !next;
     });
     const meta = rowMetadata(row, presentation, false);
     if (connection.activeRowId() === row.id) {
@@ -315,7 +338,16 @@ function mountCatalogPanel(host, storage, connection) {
     card.append(title, meta);
     const notes = rowFields('catalog-card-notes', [['密钥备注', presentation.keyNote], ['模型备注', row.modelNote]]);
     if (notes.childElementCount) card.append(notes);
-    card.append(rowActions(row, group));
+    const details = button('完整详情', () => showRowDetails(row, presentation));
+    details.classList.add('catalog-card-details');
+    details.hidden = !expanded;
+    card.append(details, rowActions(row, group));
+    card.classList.toggle('catalog-card-sort-mode', sortingGroup === groupKey(group));
+    card.addEventListener('click', event => {
+      if (sortingGroup === groupKey(group) || event.target.closest('button,input,a,select,textarea')
+        || host.getSelection()?.toString()) return;
+      card.querySelector('.catalog-card-apply').click();
+    });
     return card;
   }
   function rowPresentations(availableSites) {
@@ -348,6 +380,8 @@ function mountCatalogPanel(host, storage, connection) {
   }
   function refresh() {
     const { groups, entries } = storage.catalog;
+    if (sortingGroup !== undefined && ((categoryFilter.size && !categoryFilter.has(sortingGroup))
+      || (sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)))) sortingGroup = undefined;
     const availableSites = sites();
     const presentations = rowPresentations(availableSites);
     for (const id of siteFilter) if (!availableSites.has(id)) siteFilter.delete(id);
@@ -364,6 +398,7 @@ function mountCatalogPanel(host, storage, connection) {
       if (categoryFilter.size && !categoryFilter.has(section.id)) continue;
       const rows = orderedGroupEntries(storage.catalog, isUnassigned ? null : section.id)
         .filter(row => !siteFilter.size || siteFilter.has(siteId(row)));
+      if (sortingGroup === section.id && (!rows.length || collapsed.has(section.id))) sortingGroup = undefined;
       if (!rows.length && isUnassigned) continue;
       const drawer = make('details', 'inline-drawer');
       drawer.open = !collapsed.has(section.id);
@@ -376,12 +411,31 @@ function mountCatalogPanel(host, storage, connection) {
       label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
       const arrow = icon(drawer.open ? 'circle-chevron-up' : 'circle-chevron-down');
       arrow.classList.add('inline-drawer-icon');
-      header.append(label, arrow);
+      const sortToggle = button(sortingGroup === section.id ? '完成' : '排序', event => {
+        event.preventDefault(); event.stopPropagation();
+        if (busy) return;
+        sortingGroup = sortingGroup === section.id ? undefined : section.id;
+        if (sortingGroup !== undefined) collapsed.delete(section.id);
+        refresh();
+        focusSortToggle(section.id);
+      }, sortingGroup === section.id ? 'check' : 'sort');
+      sortToggle.classList.add('catalog-sort-toggle');
+      sortToggle.dataset.groupId = isUnassigned ? '' : section.id;
+      sortToggle.setAttribute('aria-pressed', String(sortingGroup === section.id));
+      sortToggle.disabled = rows.length < 2 && sortingGroup !== section.id;
+      header.append(label, sortToggle, arrow);
       drawer.addEventListener('toggle', () => {
         if (!drawer.isConnected) return;
         const changed = collapsed.has(section.id) === drawer.open;
         if (drawer.open) collapsed.delete(section.id);
-        else collapsed.add(section.id);
+        else {
+          collapsed.add(section.id);
+          if (sortingGroup === section.id) {
+            sortingGroup = undefined;
+            refresh();
+            focusSortToggle(section.id);
+          }
+        }
         arrow.classList.toggle('fa-circle-chevron-up', drawer.open);
         arrow.classList.toggle('fa-circle-chevron-down', !drawer.open);
         if (changed) void storage.setGroupCollapsed(isUnassigned ? null : section.id, !drawer.open)
@@ -391,13 +445,14 @@ function mountCatalogPanel(host, storage, connection) {
       const cards = make('div', 'secretKeyManagerList');
       if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, presentations.get(row.id))));
       else cards.append(make('p', 'st-orb-empty-state', '此标签暂无配置'));
-      if (rows.length) sortable(main, cards, rows.map(row => ({ id: row.id, name: row.model || row.site })), (ids, movedId) => {
+      if (rows.length && sortingGroup === section.id) sortable(main, cards, rows.map(row => ({ id: row.id, name: row.model || row.site })), (ids, movedId) => {
         save(main, catalog => reorderGroupEntries(catalog, isUnassigned ? null : section.id, ids),
           '已保存此分组内的顺序。', () => {
             refresh();
             focusRowAction({ id: movedId }, isUnassigned ? undefined : section, '.catalog-sort-handle');
           });
       });
+      if (sortingGroup === section.id) wrap.append(make('p', 'catalog-sort-help', '拖动排序柄或使用上下按钮、方向键调整，仅影响当前分组；每次移动自动保存。'));
       wrap.append(cards);
       drawer.append(header, wrap);
       list.append(drawer);

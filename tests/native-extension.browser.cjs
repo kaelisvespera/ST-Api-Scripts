@@ -512,8 +512,8 @@ for (const mode of ['st', 'tt']) {
           titleFull: title.getBoundingClientRect().width >= cardBox.width - 26,
           twoLines: text.getBoundingClientRect().height <= 2 * Number.parseFloat(getComputedStyle(text).lineHeight) + 1,
           notesFull: noteBox.width >= cardBox.width - 26 && noteBox.bottom < barBox.top,
-          notesFit: [...notes.querySelectorAll('dd')].every(note => note.scrollWidth <= note.clientWidth + 1),
-          actionsFit: buttons.every(button => button.width >= 26 && button.width <= 40 && button.height >= 26 && button.height <= 36 &&
+          notesFit: [...notes.querySelectorAll('dd')].every(note => getComputedStyle(note).textOverflow === 'ellipsis'),
+          actionsFit: buttons.every(button => button.width >= 26 && button.width <= 40 && button.height >= 26 && button.height <= 44 &&
             button.left >= cardBox.left && button.right <= cardBox.right),
           actionRows: new Set(buttons.map(button => Math.round(button.top + button.height / 2))).size,
           actionGap: getComputedStyle(actions).columnGap,
@@ -536,13 +536,15 @@ for (const mode of ['st', 'tt']) {
     assert.deepEqual(await card(a).locator('.catalog-card-notes dd').allTextContents(), ['官key', modelNote]);
     assert.equal(await card(d).locator('.catalog-card-notes dd').textContent(), keyNote);
     await title.tap();
+    const detailButton=exactButton(card(a), '完整详情');
+    await detailButton.click();
     const details = dialog('配置详情');
     await expectText(details, originalNames[0]);
     await expectText(details, model);
     await expectText(details, modelNote);
     await capture(tab, mode + '-legacy-actions-details-390');
     await exactButton(details, '关闭').click();
-    assert.equal(await title.evaluate(button => button === document.activeElement), true);
+    assert.equal(await detailButton.evaluate(button => button === document.activeElement), true);
 
     const editAction = exactButton(card(a), '编辑');
     await editAction.press('Enter');

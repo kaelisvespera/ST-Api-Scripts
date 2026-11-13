@@ -123,6 +123,7 @@ for (const [label, mode, query] of [['ST', 'st', ''], ['TT', 'tt', ''], ['TT ifr
       }
       assert.equal(await tab.evaluate(() => window.fixtureDrawerWrites), 1, 'host drawer handler ignores plugin groups');
       await button(last, 'argon-fixture-0').click();
+      await button(last, '完整详情').click();
       await pane('配置详情').getByText('argon-fixture-0', { exact: true }).waitFor();
       await button(pane('配置详情'), '关闭').click();
       const preview = process.env.ST_API_UI_PREVIEW;

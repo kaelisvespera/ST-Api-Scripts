@@ -14,6 +14,7 @@ function seed(stores, origin) {
   return catalog;
 }
 const group = (main,id) => main.locator('.secretKeyManagerList:has([data-group-id="' + id + '"])');
+const enterSort = main => main.locator('.catalog-sort-toggle[data-group-id="A"]').click();
 const order = list => list.locator('.catalog-config-card').evaluateAll(nodes => nodes.map(node => node.dataset.entryId));
 async function drag(tab, handle, target, cancel) {
   await handle.scrollIntoViewIfNeeded();
@@ -26,14 +27,14 @@ async function drag(tab, handle, target, cancel) {
 for (const mode of ['st','tt']) test(mode + ': pointer and keyboard sorting persists, cancels safely and isolates filtered labels', { timeout: 60000 },
   () => withBrowser(mode, async ({tab, open, stores, origin, flush, assertConnection}) => {
     const original = seed(stores,origin); await tab.setViewportSize({width:1100,height:1100}); await open();
-    const main = pane(tab,'API 管理器'); const a = group(main,'A'), b = group(main,'B');
+    const main = pane(tab,'API 管理器'); const a = group(main,'A'), b = group(main,'B'); await enterSort(main);
     await drag(tab,a.locator('.catalog-sort-handle').first(),a.locator('.catalog-config-card').last(),true);
     assert.deepEqual(await order(a),['one','two','three']); assert.equal(await main.isVisible(),true);
     await drag(tab,a.locator('.catalog-sort-handle').first(),a.locator('.catalog-config-card').last());
     await main.getByText('已保存此分组内的顺序。',{exact:true}).waitFor();
     assert.deepEqual(await order(a),['two','three','one']); assert.deepEqual(await order(b),['one','two','three']);
     await a.locator('.catalog-sort-handle').last().press('ArrowUp');
-    await tab.waitForFunction(() => [...document.querySelectorAll('[data-group-id="A"]')].map(n=>n.dataset.entryId).join(',') === 'two,one,three' && document.activeElement?.closest('.catalog-config-card')?.dataset.entryId === 'one');
+    await tab.waitForFunction(() => [...document.querySelectorAll('.catalog-config-card[data-group-id="A"]')].map(n=>n.dataset.entryId).join(',') === 'two,one,three' && document.activeElement?.closest('.catalog-config-card')?.dataset.entryId === 'one');
     assert.deepEqual(await order(a),['two','one','three']);
     await button(main,'标签设置').click(); const tags=pane(tab,'标签设置');
     await drag(tab,tags.locator('.catalog-sort-handle').first(),tags.locator('.catalog-sort-tags > .category-tag').last());
@@ -41,13 +42,13 @@ for (const mode of ['st','tt']) test(mode + ': pointer and keyboard sorting pers
     assert.deepEqual(await tags.locator('.catalog-sort-tags > .category-tag').evaluateAll(nodes=>nodes.map(n=>n.dataset.sortId)),['B','C','A']);
     await tab.setViewportSize({width:320,height:568}); await tab.addStyleTag({content:':root{--mainFontSize:20px}.fa-grip-vertical:before{content:"⠿"}.fa-arrow-up:before{content:"↑"}.fa-arrow-down:before{content:"↓"}'});
     assert.equal(await tags.evaluate(el=>el.scrollWidth>el.clientWidth),false);
-    fs.mkdirSync(path.resolve('..','preview-sorting'),{recursive:true});
+    fs.mkdirSync(path.resolve('work','compact-cards-20261113','sorting-screenshots'),{recursive:true});
     for(const width of [320,390]) {
       await tab.setViewportSize({width,height:700});
       await tags.locator('.catalog-sort-tags > .category-tag').first().scrollIntoViewIfNeeded();
-      await tab.screenshot({path:path.resolve('..','preview-sorting',mode+'-tags-first-'+width+'.png')});
+      await tab.screenshot({path:path.resolve('work','compact-cards-20261113','sorting-screenshots',mode+'-tags-first-'+width+'.png')});
       await tags.locator('.catalog-sort-tags > .category-tag').last().scrollIntoViewIfNeeded();
-      await tab.screenshot({path:path.resolve('..','preview-sorting',mode+'-tags-last-'+width+'.png')});
+      await tab.screenshot({path:path.resolve('work','compact-cards-20261113','sorting-screenshots',mode+'-tags-last-'+width+'.png')});
     }
     await tab.setViewportSize({width:320,height:568});
     await button(tags,'取消').click(); await flush(); await open();
@@ -57,20 +58,20 @@ for (const mode of ['st','tt']) test(mode + ': pointer and keyboard sorting pers
     await button(main,'筛选').click(); const filters=pane(tab,'筛选');
     await filters.locator('label').filter({hasText:'显示站点'}).locator('input').check();
     await button(filters,'关闭').click();
-    assert.deepEqual(await order(a),['one','three']);
+    assert.deepEqual(await order(a),['one','three']); await enterSort(main);
     await a.locator('.catalog-sort-handle').first().press('ArrowDown');
     await main.getByText('已保存此分组内的顺序。',{exact:true}).waitFor();
     assert.deepEqual(await order(a),['three','one']); await flush();
     const saved=JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog;
     assert.deepEqual(saved.groupOrders.find(o=>o.groupId==='A').entryIds,['two','three','one']);
-    await tab.screenshot({path:path.resolve('..','preview-sorting',mode+'-cards-320.png')});
+    await tab.screenshot({path:path.resolve('work','compact-cards-20261113','sorting-screenshots',mode+'-cards-320.png')});
     await assertConnection();
   }));
 
 test('touch handle reorder and pointer cancellation never trigger row actions', {timeout:60000}, () => withBrowser('tt',async ({tab,open,stores,origin,assertConnection})=>{
   seed(stores,origin);await tab.setViewportSize({width:390,height:1100});await open();
   const main=pane(tab,'API 管理器'),a=group(main,'A');
-  const client=await tab.context().newCDPSession(tab);
+  await enterSort(main); const client=await tab.context().newCDPSession(tab);
   async function touch(cancel) {
     const handle=a.locator('.catalog-sort-handle').first();await handle.scrollIntoViewIfNeeded();
     const from=await handle.boundingBox(),to=await a.locator('.catalog-config-card').last().boundingBox();
@@ -90,7 +91,7 @@ test('touch edge autoscroll reaches offscreen cards and stops after cancellation
   stores.set('one',{version:1,values:{st_api_manager_catalog_v2:JSON.stringify({catalog,sync:{revision:null,pending:false}})}});
   await tab.setViewportSize({width:390,height:700});await open();
   const main=pane(tab,'API 管理器'),a=group(main,'A'),scroll=main.locator('.popup-scroll-content');
-  const client=await tab.context().newCDPSession(tab);
+  await enterSort(main); const client=await tab.context().newCDPSession(tab);
   const handle=a.locator('.catalog-sort-handle').first();await handle.scrollIntoViewIfNeeded();
   const from=await handle.boundingBox(),view=await scroll.boundingBox();
   await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:from.x+16,y:from.y+16}]});
@@ -113,6 +114,7 @@ test('touch edge autoscroll reaches offscreen cards and stops after cancellation
 
 for(const mode of ['st','tt'])test(mode+': failed reorder retains cards and permits retry',{timeout:60000},()=>withBrowser(mode,async({tab,open,stores,origin,flush})=>{
   seed(stores,origin);await open();const main=pane(tab,'API 管理器'),a=group(main,'A');
+  await enterSort(main);
   await tab.evaluate(mode=>{
     const target=mode==='st'?SillyTavern.getContext():__TAURITAVERN__.api.extension.store;
     const key=mode==='st'?'saveSettingsDebounced':'setJson';
