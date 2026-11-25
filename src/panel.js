@@ -1008,6 +1008,61 @@ function mountCatalogPanel(host, storage, connection) {
       return rows.length ? '已检测 ' + rows.length + ' 条配置。' : '暂无配置。';
     });
   }
+  function fillPluginForm(plan) {
+    const pane = popup('填入插件 API', 'medium');
+    if (plan.warning) {
+      pane.scroll.append(make('p', 'st-native-hint', plan.warning));
+      pane.footer.append(closeButton(pane, '取消'));
+      pane.open();
+      return;
+    }
+    const fields = plan.fields.map(({ kind, label }) => label || (kind === 'url' ? 'API 地址' : 'API 密钥'));
+    const destination = plan.scopeLabel || '当前插件';
+    pane.scroll.append(make('p', 'st-native-hint', '选择配置，将填入「' + destination + '」的 ' + fields.join('、') + '。'));
+    if (plan.fields.length === 1 && plan.fields[0].kind === 'key') {
+      pane.scroll.append(make('p', 'st-native-hint', '仅填写密钥。请先确认插件当前的 API 地址与所选配置一致。'));
+    }
+    const search = fieldInput('', '搜索可填入的 API 配置', { type: 'search', placeholder: '搜索站点、模型或备注' });
+    const list = make('div', 'catalog-fill-list');
+    const presentations = rowPresentations(sites());
+    search.classList.add('catalog-fill-search');
+    pane.scroll.append(search, list);
+    function render() {
+      list.replaceChildren();
+      const terms = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      for (const row of storage.catalog.entries) {
+        const { keyLabel, keyNote, alias } = presentations.get(row.id) ?? {};
+        const searchable = [row.site, row.model, keyLabel, keyNote, row.modelNote, alias].join(' ').toLowerCase();
+        if (!terms.every(term => searchable.includes(term))) continue;
+        const item = make('div', 'catalog-fill-row');
+        const summary = make('div', 'catalog-fill-summary');
+        const title = rowTitle(row) || '未命名配置';
+        summary.append(make('strong', '', title));
+        let endpointHost;
+        try {
+          endpointHost = endpointUrl(row.url.trim() || (Object.hasOwn(defaultEndpoints, row.source) ? defaultEndpoints[row.source] : '')).host;
+        } catch { /* Some entries only contain a key. */ }
+        const details = [endpointHost, keyLabel, keyNote, row.modelNote].filter(Boolean).join(' · ');
+        if (details) summary.append(make('small', '', details));
+        const fill = button('填入', () => run(pane, () => {
+          const current = storage.catalog.entries.find(entry => entry.id === row.id);
+          if (!current || current.url !== row.url || current.key !== row.key || current.source !== row.source) {
+            throw new Error('这条配置已变化，请关闭后重新选择。');
+          }
+          return plan.fill(current);
+        }, undefined, () => pane.dialog.close()), 'paste');
+        fill.setAttribute('aria-label', ['填入', title, keyLabel].filter(Boolean).join(' '));
+        item.append(summary, fill);
+        list.append(item);
+      }
+      if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '没有找到 API 配置。'));
+    }
+    search.addEventListener('input', render);
+    pane.footer.append(closeButton(pane, '取消'));
+    render();
+    pane.open();
+  }
+  mountCatalogFormFill(host, fillPluginForm);
   return () => {
     if (main.dialog.open) return;
     main.status.textContent = '';

@@ -3,7 +3,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 const { version } = JSON.parse(read('manifest.json'));
-const sources = ['catalog.js', 'storage.js', 'connection.js', 'panel-editor.js', 'panel.js', 'entry-points.js', 'bootstrap.js'];
+const sources = ['catalog.js', 'storage.js', 'connection.js', 'form-fill.js', 'panel-editor.js', 'panel.js', 'entry-points.js', 'bootstrap.js'];
 const shared = 'const catalogPanelVersion = ' + JSON.stringify(version) + ';\n'
   + 'const catalogPanelCss = ' + JSON.stringify(read('src/panel.css')) + ';\n'
   + sources.map(file => read('src/' + file)).join('\n');

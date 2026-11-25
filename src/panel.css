@@ -641,3 +641,13 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-sort-help { margin: 0 0 6px; font-size: var(--st-orb-font-sm); }
 
 .st-api-manager .catalog-config-card { border-color: var(--SmartThemeBorderColor) !important; }
+
+/* Form filling uses the same dialog shell as the rest of the manager. */
+.st-api-manager .catalog-fill-search { width: 100%; box-sizing: border-box; margin: 0 0 8px; }
+.st-api-manager .catalog-fill-list { display: grid; gap: 6px; }
+.st-api-manager .catalog-fill-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px;
+  padding: 6px 8px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px;
+}
+.st-api-manager .catalog-fill-summary { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.st-api-manager .catalog-fill-row > button { margin: 0; min-height: 32px; }
