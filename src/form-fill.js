@@ -3,6 +3,8 @@ function mountCatalogFormFill(host, showPicker) {
   const realm = doc.defaultView ?? host;
   const Input = realm.HTMLInputElement;
   const setValue = Input?.prototype && Object.getOwnPropertyDescriptor(Input.prototype, 'value')?.set;
+  const TextArea = realm.HTMLTextAreaElement;
+  const setTextAreaValue = TextArea?.prototype && Object.getOwnPropertyDescriptor(TextArea.prototype, 'value')?.set;
   if (!setValue) return;
   const ownUI = '.st-api-manager, .catalog-form-fill-trigger, #st-api-manager-extension-button';
   const excluded = ownUI + ', #openai_settings, #rm_api_block, #send_form, #chat, #send_textarea, '
@@ -10,15 +12,16 @@ function mountCatalogFormFill(host, showPicker) {
     + '#api_key_custom, #api_key_openai, #api_key_deepseek, #api_key_makersuite, [inert], [aria-hidden="true"]';
   const scopeSelector = 'form, fieldset, dialog, [role="form"], [role="dialog"], .popup, .inline-drawer-content, '
     + '[data-extension], [data-extension-id], [data-extension-name], [data-plugin], [data-plugin-id], [data-plugin-name]';
-  const fieldLabels = { url: 'API 地址', key: 'API Key' };
+  const fieldLabels = { url: 'API 地址', key: 'API Key', includeBody: '附加参数', excludeBody: '排除参数' };
+  const extraKinds = ['includeBody', 'excludeBody'];
   const watchedRoots = new WeakSet();
   let current;
 
-  function accessibleLabel(element) {
+  function accessibleLabel(element, labelText = node => node.textContent.trim()) {
     const labeledBy = (element?.getAttribute?.('aria-labelledby') ?? '').trim().split(/\s+/).filter(Boolean);
     const root = element?.getRootNode();
     return element?.getAttribute?.('aria-label')?.trim() ||
-      labeledBy.map(id => root?.getElementById?.(id)?.textContent?.trim()).filter(Boolean).join(' ');
+      labeledBy.map(id => root?.getElementById?.(id)).filter(Boolean).map(labelText).filter(Boolean).join(' ');
   }
 
   function scopeTitle(scope) {
@@ -95,15 +98,96 @@ function mountCatalogFormFill(host, showPicker) {
     return eligible.length === 2 ? [focused, partner] : null;
   }
 
-  function fill(input, scope, parent, form, fields, row) {
+  function visible(field) {
+    return field.getClientRects().length > 0 &&
+      field.checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) !== false &&
+      realm.getComputedStyle(field).visibility === 'visible';
+  }
+
+  function extraCaption(node, field, scope) {
+    if (!node || scopeOf(node) !== scope || !node.matches('label, span, div, p, small, strong, legend') ||
+      (node.matches('label[for]') && node.control !== field) ||
+      node.querySelector('input, textarea, select, button')) return '';
+    const caption = node.textContent.trim();
+    return caption.length <= 60 ? caption : '';
+  }
+
+  function extraLabelText(label) {
+    // An implicit label may wrap a textarea, including its old default text.
+    const walker = doc.createTreeWalker(label, realm.NodeFilter.SHOW_TEXT);
+    const fragments = [];
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      if (!text.parentElement?.closest('textarea, input, select, button')) fragments.push(text.nodeValue);
+    }
+    return fragments.join(' ').trim();
+  }
+
+  function extraFieldType(field, scope) {
+    if (!(field instanceof TextArea) || field.ownerDocument !== doc || !field.isConnected ||
+      field.matches(':disabled') || field.readOnly || insideExcluded(field)) return undefined;
+    const adjacent = [field.previousElementSibling, field.parentElement?.previousElementSibling]
+      .map(node => extraCaption(node, field, scope));
+    const own = [accessibleLabel(field, extraLabelText), ...[...field.labels ?? []].map(extraLabelText)];
+    const captions = [...own, ...adjacent].filter(Boolean).map(label => label.toLowerCase()
+      .replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')'));
+    const types = [
+      { kind: 'includeBody', yaml: false, labels: ['附加参数(json)'] },
+      { kind: 'excludeBody', yaml: false, labels: ['排除参数', '剔除参数', '剔除参数(换行或逗号分隔)'] },
+      { kind: 'includeBody', yaml: true, labels: ['包括主体参数', '包含主体参数', '包括主体参数(yaml对象)', '包含主体参数(yaml对象)'] },
+      { kind: 'excludeBody', yaml: true, labels: ['排除主体参数', '排除主体参数(yaml数组)'] },
+    ];
+    const matched = types.filter(type => type.labels.some(label => captions.includes(label)));
+    if (matched.length !== 1) return undefined;
+    const { kind, yaml } = matched[0];
+    const type = { input: field, kind, yaml };
+    const hidden = field.closest('[hidden]');
+    const knownAdvancedBody = hidden?.matches('.api-editor-advanced-body[hidden]') &&
+      scope?.matches?.('form.api-editor-form') && hidden.closest('form') === scope;
+    const collapsed = field.closest('details:not([open])');
+    if (hidden && !knownAdvancedBody) return undefined;
+    if (collapsed && scopeOf(collapsed) !== scope) return undefined;
+    if (!hidden && !collapsed) return visible(field) ? type : undefined;
+
+    // Advanced options can be closed while the surrounding form is active.
+    // Do not treat arbitrary hidden or disabled fields as fill targets.
+    for (let node = field; node; node = node.parentElement ?? node.getRootNode().host) {
+      const css = realm.getComputedStyle(node);
+      if ((node.hidden && node !== hidden) || (css.display === 'none' && node !== hidden) ||
+          css.visibility !== 'visible' || css.opacity === '0' || css.contentVisibility === 'hidden') return undefined;
+    }
+    let outer = hidden?.parentElement ?? collapsed;
+    if (collapsed?.contains(outer)) outer = collapsed;
+    return outer && visible(outer) ? type : undefined;
+  }
+
+  function scopedExtras(scope, form, fields) {
+    const result = new Map();
+    if (!scope || fields.length !== 2 || !setTextAreaValue) return result;
+    const duplicates = new Set();
+    for (const field of scope.querySelectorAll('textarea')) {
+      if (scopeOf(field) !== scope || field.form !== form) continue;
+      const type = extraFieldType(field, scope);
+      if (!type || duplicates.has(type.kind)) continue;
+      if (result.has(type.kind)) {
+        duplicates.add(type.kind);
+        result.delete(type.kind);
+      } else result.set(type.kind, type);
+    }
+    return result;
+  }
+
+  async function fill(input, scope, parent, form, fields, extraTargets, row) {
     const sameTarget = field => field.isConnected && scopeOf(field) === scope &&
       field.form === form && scopeParent(input, scope) === parent;
-    const actual = scopedFields(input, scope);
-    if (!sameTarget(input) || !actual ||
-      actual.length !== fields.length || actual.some((field, index) =>
-        field.input !== fields[index].input || field.kind !== fields[index].kind)) {
-      throw new Error('插件输入框已变化，请关闭后重新选择。');
-    }
+    const verifyCredentialTargets = () => {
+      const actual = scopedFields(input, scope);
+      if (!sameTarget(input) || !actual ||
+        actual.length !== fields.length || actual.some((field, index) =>
+          field.input !== fields[index].input || field.kind !== fields[index].kind)) {
+        throw new Error('插件输入框已变化，请关闭后重新选择。');
+      }
+    };
+    verifyCredentialTargets();
 
     const assignments = fields.map(field => {
       let value;
@@ -117,21 +201,39 @@ function mountCatalogFormFill(host, showPicker) {
         value = row.key;
         if (!value.trim() || /[\r\n]/.test(value)) throw new Error('请选择有有效 API Key 的配置。');
       }
-      if (field.input.maxLength >= 0 && value.length > field.input.maxLength) {
-        throw new Error(fieldLabels[field.kind] + '超出插件输入框允许的长度。');
-      }
-      return { input: field.input, value };
+      return { ...field, value, setter: setValue };
     });
+    if (row.extra && extraTargets.size) {
+      const extraFields = extraKinds.filter(kind => extraTargets.has(kind));
+      const yamlFields = extraFields.filter(kind => extraTargets.get(kind).yaml);
+      const values = await formatEntryExtraForPlugin(host, row.extra, extraFields, yamlFields);
+      verifyCredentialTargets();
+      const currentExtras = scopedExtras(scope, form, fields);
+      for (const kind of extraFields) {
+        if (!Object.hasOwn(values, kind)) continue;
+        const original = extraTargets.get(kind);
+        const present = currentExtras.get(kind);
+        if (present?.input !== original.input || present.yaml !== original.yaml || !sameTarget(original.input)) {
+          throw new Error('插件高级参数输入框已变化，请关闭后重新选择。');
+        }
+        assignments.push({ input: original.input, kind, value: values[kind], setter: setTextAreaValue });
+      }
+    }
+    for (const assignment of assignments) {
+      if (assignment.input.maxLength >= 0 && assignment.value.length > assignment.input.maxLength) {
+        throw new Error(fieldLabels[assignment.kind] + '超出插件输入框允许的长度。');
+      }
+    }
 
-    // Apply both values before notifying listeners that may redraw the extension form.
-    for (const assignment of assignments) setValue.call(assignment.input, assignment.value);
+    // Apply all values before notifying listeners that may redraw the extension form.
+    for (const { input: field, value, setter } of assignments) setter.call(field, value);
     for (const assignment of assignments) {
       for (const type of ['input', 'change']) {
         if (!sameTarget(assignment.input)) throw new Error('插件已刷新输入框，请检查填写结果。');
         assignment.input.dispatchEvent(new realm.Event(type, { bubbles: true, composed: true }));
       }
     }
-    const labels = fields.map(field => fieldLabels[field.kind]).join('和');
+    const labels = assignments.map(field => fieldLabels[field.kind]).join('、');
     return '已填入' + labels + '。';
   }
 
@@ -187,10 +289,12 @@ function mountCatalogFormFill(host, showPicker) {
         return;
       }
       const scopeLabel = scopeTitle(scope).slice(0, 80);
+      const extraTargets = scopedExtras(scope, form, fields);
       showPicker({
         fields: fields.map(({ kind }) => ({ kind, label: fieldLabels[kind] })),
+        extraFields: extraKinds.filter(kind => extraTargets.has(kind)),
         scopeLabel,
-        fill: row => fill(input, scope, parent, form, fields, row),
+        fill: row => fill(input, scope, parent, form, fields, extraTargets, row),
       });
     });
     anchor.after(button);

@@ -1018,6 +1018,8 @@ function mountCatalogPanel(host, storage, connection) {
     }
     const fields = plan.fields.map(({ kind, label }) => label || (kind === 'url' ? 'API 地址' : 'API 密钥'));
     const destination = plan.scopeLabel || '当前插件';
+    const pluginExtraLabels = { includeBody: '主体附加参数', excludeBody: '排除参数', includeHeaders: '请求标头' };
+    const supportedExtra = new Set(plan.extraFields ?? []);
     pane.scroll.append(make('p', 'st-native-hint', '选择配置，将填入「' + destination + '」的 ' + fields.join('、') + '。'));
     if (plan.fields.length === 1 && plan.fields[0].kind === 'key') {
       pane.scroll.append(make('p', 'st-native-hint', '仅填写密钥。请先确认插件当前的 API 地址与所选配置一致。'));
@@ -1040,9 +1042,18 @@ function mountCatalogPanel(host, storage, connection) {
       } catch { /* Some entries only contain a key. */ }
       const details = [endpointHost, keyLabel, keyNote, row.modelNote].filter(Boolean).join(' · ');
       if (details) summary.append(make('small', '', details));
+      if (row.extra) {
+        const configured = entryExtraFields.filter(name => row.extra[name]?.trim());
+        const pending = configured.filter(name => supportedExtra.has(name));
+        const nativeOnly = configured.filter(name => !supportedExtra.has(name));
+        if (pending.length) summary.append(make('small', '', '一并填入：' + pending.map(name => pluginExtraLabels[name]).join('、')));
+        if (nativeOnly.length) summary.append(make('small', '', '本表单无法填入：' + nativeOnly.map(name => pluginExtraLabels[name]).join('、')));
+      }
       const fill = button('填入', () => run(pane, () => {
         const current = storage.catalog.entries.find(entry => entry.id === row.id);
-        if (!current || current.url !== row.url || current.key !== row.key || current.source !== row.source) {
+        if (!current || current.url !== row.url || current.key !== row.key || current.source !== row.source ||
+          Boolean(current.extra) !== Boolean(row.extra) ||
+          entryExtraFields.some(name => current.extra?.[name] !== row.extra?.[name])) {
           throw new Error('这条配置已变化，请关闭后重新选择。');
         }
         return plan.fill(current);

@@ -44,42 +44,6 @@ function openCatalogEditor(ui, rows, afterSave) {
   const note = rows.length === 1 ? fieldInput(original.name, '条目备注（可选）') : null;
   if (note) field('条目备注（可选）', note);
 
-  const extra = make('details', 'catalog-extra-params');
-  extra.append(make('summary', '', '附加参数'));
-  const initialExtra = normalizeEntryExtra(original?.extra ?? {});
-  const variedExtras = rows.some(row =>
-    entryExtraFields.some(name => (row.extra?.[name] ?? '') !== initialExtra[name]));
-  let extraTouched = false;
-  const extraInputs = new Map();
-  if (variedExtras) {
-    extra.append(make('p', 'st-native-hint', '组内配置使用不同的附加参数。请从主列表打开单条配置编辑。'));
-  } else {
-    extra.append(make('p', 'st-native-hint', rows.length > 1
-      ? '这里的设置会应用于本次保存的所有自定义 API 条目。留空表示不添加。'
-      : '应用这条自定义 API 时写入酒馆的原生设置。留空表示不添加。'));
-    for (const [name, label, example] of [
-      ['includeBody', '包含主体参数', 'top_k: 20\nrepetition_penalty: 1.1'],
-      ['excludeBody', '排除主体参数', '- frequency_penalty\n- presence_penalty'],
-      ['includeHeaders', '包含请求标头', 'CustomHeader: 自定义值'],
-    ]) {
-      const wrap = make('label', 'catalog-note-field');
-      const input = make('textarea', 'text_pole wide100p');
-      input.rows = 3;
-      input.spellcheck = false;
-      input.value = initialExtra[name];
-      input.placeholder = example;
-      input.addEventListener('input', () => { extraTouched = true; });
-      wrap.append(make('span', '', label), input);
-      extra.append(wrap);
-      extraInputs.set(name, input);
-    }
-    extra.open = entryExtraFields.some(name => initialExtra[name].trim());
-  }
-  const showExtra = () => { extra.hidden = source.value !== 'custom'; };
-  source.addEventListener('change', showExtra);
-  showExtra();
-  form.append(extra);
-
   const drafts = [];
   const draftByKey = new Map();
   const savedKeyNotes = new Map((storage.catalog.keyNotes ?? []).map(note => [note.id, note.note]));
@@ -90,7 +54,9 @@ function openCatalogEditor(ui, rows, afterSave) {
       draftByKey.set(ref, draft);
       drafts.push(draft);
     }
-    draftByKey.get(ref).models.push({ row, model: row.model, note: row.modelNote ?? '', groupIds: [...row.groupIds] });
+    draftByKey.get(ref).models.push({
+      row, model: row.model, note: row.modelNote ?? '', groupIds: [...row.groupIds], extra: row.extra,
+    });
   }
   let selected;
   const current = () => selected ?? drafts[0];
@@ -104,6 +70,29 @@ function openCatalogEditor(ui, rows, afterSave) {
     input.addEventListener('input', () => setValue(input.value));
     field.append(make('span', '', label), input);
     return field;
+  }
+  function modelExtraFields(item) {
+    const details = make('details', 'st-api-manager-model-extra');
+    details.open = !!item.showExtra;
+    details.addEventListener('toggle', () => { item.showExtra = details.open; });
+    const summary = make('summary', '', '附加参数');
+    const fields = make('div', 'catalog-model-extra-fields');
+    const examples = ['top_k: 20\nrepetition_penalty: 1.1', '- frequency_penalty\n- presence_penalty', 'CustomHeader: 自定义值'];
+    entryExtraYamlFields.forEach(([name, label], index) => {
+      const wrap = make('label', 'catalog-note-field');
+      const input = make('textarea', 'text_pole');
+      input.rows = 3;
+      input.spellcheck = false;
+      input.value = item.extra?.[name] ?? '';
+      input.placeholder = examples[index];
+      input.addEventListener('input', () => {
+        item.extra = { ...normalizeEntryExtra(item.extra ?? {}), [name]: input.value };
+      });
+      wrap.append(make('span', '', label), input);
+      fields.append(wrap);
+    });
+    details.append(summary, fields);
+    return details;
   }
   const keys = make('div', 'st-native-keys-section');
   const addRow = make('div', 'key-add-row api-config-edit-modal__key-add-row');
@@ -356,6 +345,7 @@ function openCatalogEditor(ui, rows, afterSave) {
         tags.append(summary, grid);
         chip.append(tags);
       }
+      if (source.value === 'custom') chip.append(modelExtraFields(item));
       list.append(chip);
     }
     selectedBox.hidden = !items.length;
@@ -433,8 +423,6 @@ function openCatalogEditor(ui, rows, afterSave) {
   form.addEventListener('submit', event => {
     event.preventDefault();
     const existingIds = new Set(rows.map(row => row.id));
-    const entryExtra = source.value === 'custom' && !variedExtras && extraTouched
-      ? Object.fromEntries([...extraInputs].map(([name, input]) => [name, input.value])) : undefined;
     const updateCatalog = catalog => {
       if (!site.value.trim()) throw new Error('请填写配置组名称。');
       if (addInput.value) incorporateKey();
@@ -465,8 +453,7 @@ function openCatalogEditor(ui, rows, afterSave) {
             name: note && item.row ? note.value.trim() : item.row?.name ?? '',
             groupIds: item.groupIds,
           };
-          if (entryExtra) row.extra = entryExtra;
-          else if (!item.row && fields.source === 'custom' && !variedExtras && original?.extra) row.extra = original.extra;
+          if (fields.source === 'custom' && item.extra) row.extra = item.extra;
           if (credentialId) row.credentialId = credentialId;
           const modelNote = item.note.trim();
           if (modelNote || Object.hasOwn(row, 'modelNote')) row.modelNote = modelNote;
@@ -485,7 +472,16 @@ function openCatalogEditor(ui, rows, afterSave) {
       };
     };
     run(pane, async () => {
-      if (entryExtra) await validateEntryExtraYaml(host, entryExtra);
+      if (source.value === 'custom') {
+        for (const item of drafts.flatMap(draft => draft.models)) {
+          if (!item.extra || item.extra === item.row?.extra) continue;
+          try {
+            await validateEntryExtraYaml(host, item.extra);
+          } catch (error) {
+            throw new Error('模型「' + (item.model.trim() || '未指定模型') + '」：' + error.message);
+          }
+        }
+      }
       await storage.update(updateCatalog);
     }, '已保存配置。', () => {
       refresh();

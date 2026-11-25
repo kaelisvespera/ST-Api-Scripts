@@ -145,8 +145,18 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   border: 1px solid var(--SmartThemeBorderColor) !important; overflow-wrap: anywhere;
 }
 .st-api-manager .import-mode-option > small { display: block; white-space: normal; font-size: var(--st-orb-font-sm); }
-.st-api-manager .catalog-model-tags { flex-basis: 100%; padding-inline: 4px; font-size: var(--st-orb-font-sm); }
-.st-api-manager .catalog-model-tags summary { cursor: pointer; }
+.st-api-manager :is(.catalog-model-tags, .st-api-manager-model-extra) {
+  flex-basis: 100%; min-width: 0; box-sizing: border-box; padding-inline: 4px; font-size: var(--st-orb-font-sm);
+}
+.st-api-manager :is(.catalog-model-tags, .st-api-manager-model-extra) > summary { cursor: pointer; }
+.st-api-manager .st-api-manager-model-extra > summary {
+  min-height: 32px; padding-block: 4px; line-height: 1.5; box-sizing: border-box;
+}
+.st-api-manager .st-api-manager-model-extra > summary:focus-visible {
+  outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px;
+}
+.st-api-manager .catalog-model-extra-fields { display: grid; gap: 8px; padding-block: 4px; }
+.st-api-manager .catalog-model-extra-fields textarea { box-sizing: border-box; max-width: 100%; }
 .st-api-manager .catalog-model-tags .category-tag-grid { margin-top: 4px; }
 .st-api-manager .selected-item { flex-wrap: wrap; max-width: 100%; }
 .st-api-manager .selected-item .model-name { flex: 1 1 9em; width: auto; }
@@ -662,11 +672,3 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 }
 .st-api-manager .catalog-fill-summary { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .st-api-manager .catalog-fill-row > button { margin: 0; min-height: 32px; }
-
-.st-api-manager .catalog-extra-params {
-  padding: 8px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px;
-}
-.st-api-manager .catalog-extra-params summary { cursor: pointer; font-weight: 600; }
-.st-api-manager .catalog-extra-params textarea {
-  box-sizing: border-box; max-width: 100%; font: inherit; resize: vertical;
-}

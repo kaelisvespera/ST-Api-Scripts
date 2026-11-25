@@ -168,7 +168,7 @@ for (const mode of ['st', 'tt']) {
       }
       for (const [i, tag] of [group, group, '第三组'].entries()) {
         const item = editor.locator('.selected-item').nth(i);
-        await item.locator('summary').click();
+        await item.locator('.catalog-model-tags > summary').click();
         await item.getByRole('checkbox', { name: tag, exact: true }).check();
       }
     }
