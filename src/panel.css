@@ -49,6 +49,7 @@ dialog.st-api-manager.popup {
 dialog.st-api-manager.popup:not([open]) { display: none; }
 dialog.st-api-manager.popup.st-api-manager-native-dialog--large { --catalog-dialog-width: 800px; }
 dialog.st-api-manager.popup.st-api-manager-native-dialog--small { --catalog-dialog-width: 480px; }
+dialog.st-api-manager.popup.st-api-manager-native-dialog:not([data-nested]) { box-shadow: none !important; }
 dialog.st-api-manager.popup::backdrop { background: rgba(15, 18, 28, .52); }
 dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager.popup .popup-body,
@@ -100,6 +101,33 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .category-tag {
   display: inline-flex; flex-wrap: nowrap; gap: 5px; min-width: 0; max-width: 100%;
   height: auto; margin: 0; border-radius: 1em; white-space: normal;
+}
+/* The native color input remains independent of the optional tag icon. */
+.st-api-manager .catalog-tag-icon-picker {
+  margin: 8px 0 0; padding: 3px 6px 6px; min-inline-size: 0;
+  border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px;
+}
+.st-api-manager .catalog-tag-icon-picker legend {
+  padding-inline: 4px; font-size: var(--st-orb-font-sm);
+}
+.st-api-manager .catalog-tag-icon-choices { display: flex; flex-wrap: wrap; gap: 2px 8px; }
+.st-api-manager .catalog-tag-icon-choice {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 28px;
+  font-size: var(--st-orb-font-sm); cursor: pointer;
+}
+.st-api-manager .catalog-tag-icon-choice input { margin: 0; }
+.st-api-manager .catalog-tag-icon {
+  display: inline-block; width: 1em; height: 1em; flex: none; vertical-align: -.12em;
+  -webkit-mask: var(--catalog-tag-icon-shape) center / contain no-repeat;
+  mask: var(--catalog-tag-icon-shape) center / contain no-repeat;
+}
+.st-api-manager .catalog-tag-icon--claude {
+  background: #cc7d5e;
+  --catalog-tag-icon-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' stroke='black' stroke-width='1' stroke-linejoin='round' d='M11 9 6 1 8 1 12 9 13 1 14 1 14 8 19 3 20 4 16 10 22 9 23 10 16 12 23 13 23 14 16 14 21 19 20 20 14 15 17 22 16 23 13 16 12 23 11 23 11 16 6 22 5 21 9 15 3 19 2 18 9 13 1 12 1 11 9 11 3 6 4 5Z'/%3E%3C/svg%3E");
+}
+.st-api-manager .catalog-tag-icon--gemini {
+  background: conic-gradient(from -35deg, #ea4335, #4285f4 25%, #4285f4 48%, #34a853 65%, #fbbc05 81%, #ea4335);
+  --catalog-tag-icon-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 0C13.5 6.2 17.8 10.5 24 12 17.8 13.5 13.5 17.8 12 24 10.5 17.8 6.2 13.5 0 12 6.2 10.5 10.5 6.2 12 0Z'/%3E%3C/svg%3E");
 }
 .st-api-manager .catalog-tag-label { display: inline-flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; max-width: 100%; cursor: pointer; }
 .st-api-manager .catalog-tag-label > input,

@@ -9,6 +9,7 @@ const emptyCatalog = () => ({ format: catalogFormat, version: 2, entries: [], gr
 const formatError = () => new Error('配置文件格式无效，原有配置已保留。');
 const credentialScope = row => JSON.stringify([row.site, row.source, row.url, row.key]);
 const credentialRef = row => row.credentialId ? 'id:' + row.credentialId : 'key:' + row.key;
+const isGroupIcon = value => value === 'claude' || value === 'gemini';
 
 function validateCatalog(value) {
   if (!isObject(value) || value.format !== catalogFormat || value.version !== 2 ||
@@ -40,7 +41,13 @@ function validateCatalog(value) {
     }
     entries.add(row.id);
   }
-  return normalizeGroupOrders(value);
+  const normalized = normalizeGroupOrders(value);
+  if (!value.groups.some(group => Object.hasOwn(group, 'icon') && !isGroupIcon(group.icon))) return normalized;
+  return { ...normalized, groups: value.groups.map(group => {
+    if (!Object.hasOwn(group, 'icon') || isGroupIcon(group.icon)) return group;
+    const { icon, ...rest } = group;
+    return rest;
+  }) };
 }
 
 // Ordering is per label, not part of model or credential record identity.
@@ -158,7 +165,7 @@ function canonical(value) {
 const legacyRecordContent = ({ id, rotationPoolId, credentialId, modelNote, ...value }) => canonical(value);
 const conflictContent = ({ id, conflictSourceId, ...value }) => canonical(value);
 
-function mergeCatalogRecords(local, incoming, legacy, compatible) {
+function mergeCatalogRecords(local, incoming, legacy, compatible, legacyContent = legacyRecordContent) {
   const records = [...local];
   const byId = new Map(local.map(record => [record.id, record]));
   const positions = new Map(local.map((record, index) => [record.id, index]));
@@ -178,8 +185,8 @@ function mergeCatalogRecords(local, incoming, legacy, compatible) {
       result = local.find(candidate => !reservedIds.has(candidate.id) &&
         candidate.conflictSourceId === record.id && conflictContent(candidate) === content);
     } else if (legacy) {
-      const content = legacyRecordContent(record);
-      result = local.find(candidate => !reservedIds.has(candidate.id) && legacyRecordContent(candidate) === content);
+      const content = legacyContent(record, record);
+      result = local.find(candidate => !reservedIds.has(candidate.id) && legacyContent(candidate, record) === content);
     }
     if (!result) {
       result = existing ? { ...record, id: makeId(), conflictSourceId: record.id } : record;
@@ -199,6 +206,15 @@ function mergeEntryMetadata(left, right) {
   return { ...left, ...right };
 }
 
+function legacyGroupContent({ id, icon, ...group }, incoming) {
+  return canonical(incoming.icon === undefined ? group : { ...group, icon });
+}
+
+function mergeLegacyGroupIcon(local, incoming) {
+  if (incoming.icon === undefined && isGroupIcon(local.icon) &&
+      legacyGroupContent(local, incoming) === legacyGroupContent(incoming, incoming)) return local;
+}
+
 function scopedKeyNotes(catalog) {
   const scopes = new Map(catalog.entries.filter(row => row.credentialId).map(row => [row.credentialId, credentialScope(row)]));
   return (catalog.keyNotes ?? []).map(note => ({ ...note, scope: scopes.get(note.id) }));
@@ -213,7 +229,8 @@ function pruneKeyNotes(catalog) {
 }
 
 function mergeCatalogs(local, incoming, legacy = false) {
-  const { records: groups, ids: groupIds } = mergeCatalogRecords(local.groups, incoming.groups, legacy);
+  const { records: groups, ids: groupIds } = mergeCatalogRecords(local.groups, incoming.groups, legacy,
+    legacy ? mergeLegacyGroupIcon : undefined, legacyGroupContent);
   const { records: notes, ids: credentialIds } = mergeCatalogRecords(scopedKeyNotes(local), scopedKeyNotes(incoming));
   const incomingEntries = incoming.entries.map(row => ({
     ...row, groupIds: row.groupIds.map(id => groupIds.get(id)),

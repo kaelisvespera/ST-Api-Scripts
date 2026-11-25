@@ -47,6 +47,32 @@ function mountCatalogPanel(host, storage, connection) {
     frame.append(content, status, footer);
     dialog.append(frame);
     dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+    if (main) {
+      let backdropPointer = null;
+      const hitsBackdrop = event => {
+        if (event.target !== dialog) return false;
+        const { left, right, top, bottom } = dialog.getBoundingClientRect();
+        return event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom;
+      };
+      // Native dialogs retarget backdrop events to the dialog itself. Require
+      // both ends outside so a drag across its edge does not dismiss it.
+      dialog.addEventListener('pointerdown', event => {
+        if (!event.isPrimary || event.button !== 0) return;
+        backdropPointer = !busy && hitsBackdrop(event) ? event.pointerId : null;
+      });
+      dialog.addEventListener('pointercancel', event => {
+        if (event.pointerId === backdropPointer) backdropPointer = null;
+      });
+      dialog.addEventListener('click', event => {
+        const startedOutside = backdropPointer !== null
+          && (event.pointerId === undefined || event.pointerId === backdropPointer);
+        backdropPointer = null;
+        if (!startedOutside || !event.detail || busy || !hitsBackdrop(event)) return;
+        event.stopPropagation();
+        dialog.close();
+      });
+      dialog.addEventListener('close', () => { backdropPointer = null; });
+    }
     dialog.addEventListener('close', () => {
       if (!main) dialog.remove();
     });
@@ -121,6 +147,39 @@ function mountCatalogPanel(host, storage, connection) {
     return (knownGroup ? suffix : row.name).slice(0, -model.length).trim();
   }
   const groupColor = group => /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#3b82f6';
+  function groupMarker(group) {
+    const iconName = group.icon;
+    const marker = isGroupIcon(iconName)
+      ? make('span', 'catalog-tag-icon catalog-tag-icon--' + iconName)
+      : make('span', 'category-color-dot');
+    if (marker.classList.contains('category-color-dot')) marker.style.backgroundColor = groupColor(group);
+    marker.setAttribute('aria-hidden', 'true');
+    return marker;
+  }
+  function tagIconPicker(selection) {
+    const field = make('fieldset', 'catalog-tag-icon-picker');
+    field.append(make('legend', '', '标签图标'));
+    const choices = make('div', 'catalog-tag-icon-choices');
+    const radios = [];
+    for (const [value, label] of [['', '色点'], ['claude', 'Claude'], ['gemini', 'Gemini']]) {
+      const option = make('label', 'catalog-tag-icon-choice');
+      const input = make('input');
+      input.type = 'radio';
+      input.name = 'catalog-tag-icon';
+      input.value = value;
+      input.checked = value === (selection ?? '');
+      radios.push(input);
+      option.append(input);
+      if (value) option.append(groupMarker({ icon: value }));
+      option.append(make('span', '', label));
+      choices.append(option);
+    }
+    field.append(choices);
+    return {
+      field,
+      value: () => radios.find(input => input.checked)?.value || undefined,
+    };
+  }
   function sites() {
     const result = new Map();
     for (const row of storage.catalog.entries) {
@@ -408,6 +467,7 @@ function mountCatalogPanel(host, storage, connection) {
       const label = make('span', 'flex-container alignItemsCenter');
       const name = make('b', '', section.name);
       if (!isUnassigned) name.style.color = groupColor(section);
+      if (section.icon) label.append(groupMarker(section));
       label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
       const arrow = icon(drawer.open ? 'circle-chevron-up' : 'circle-chevron-down');
       arrow.classList.add('inline-drawer-icon');
@@ -495,7 +555,7 @@ function mountCatalogPanel(host, storage, connection) {
     pane.open();
   }
   const edit = (rows, afterSave) => openCatalogEditor({
-    host, storage, popup, make, button, fieldInput, closeButton, save, run, refresh, groupColor,
+    host, storage, popup, make, button, fieldInput, closeButton, save, run, refresh, groupMarker,
   }, rows, afterSave);
 
   function filters() {
@@ -544,7 +604,9 @@ function mountCatalogPanel(host, storage, connection) {
         });
         inputs.push([option.id, input]);
         controls.push(input);
-        label.append(input, make('span', '', option.name), make('small', 'category-popup-option__count', String(option.count)));
+        label.append(input);
+        if (option.icon) label.append(groupMarker(option));
+        label.append(make('span', '', option.name), make('small', 'category-popup-option__count', String(option.count)));
         list.append(label);
       }
       section.append(header, list);
@@ -557,9 +619,7 @@ function mountCatalogPanel(host, storage, connection) {
   function tagOption(group, input, extras = []) {
     const tag = make('span', 'category-tag menu_button menu_button_icon');
     const label = make('label', 'catalog-tag-label');
-    const dot = make('span', 'category-color-dot');
-    dot.style.backgroundColor = groupColor(group);
-    label.append(input, dot, make('span', 'category-tag-name', group.name));
+    label.append(input, groupMarker(group), make('span', 'category-tag-name', group.name));
     tag.append(label, ...extras);
     return tag;
   }
@@ -673,20 +733,23 @@ function mountCatalogPanel(host, storage, connection) {
     const tagPanel = make('section', 'category-action-panel');
     const heading = make('div', 'category-action-panel__header');
     heading.append(make('span', 'category-action-panel__title', '管理标签'));
-    const form = make('form', 'new-category-row');
+    const form = make('form');
+    const fields = make('div', 'new-category-row');
     const name = fieldInput('', '新分组名称', { placeholder: '输入分类名称（如：Claude、GPT、本地模型）', required: true });
     name.classList.add('new-category-input');
     const color = fieldInput('#3b82f6', '选择颜色', { type: 'color' });
     color.className = 'color-picker';
     const add = button('新建分类', undefined, 'plus', true);
     add.type = 'submit';
-    form.append(name, color, add);
+    const appearance = tagIconPicker();
+    fields.append(name, color, add);
+    form.append(fields, appearance.field);
     form.addEventListener('submit', event => {
       event.preventDefault();
       const value = name.value.trim();
       if (!value) return;
       save(pane, catalog => ({
-        ...catalog, groups: [...catalog.groups, { id: makeId(), name: value, color: color.value }],
+        ...catalog, groups: [...catalog.groups, { id: makeId(), name: value, color: color.value, icon: appearance.value() }],
       }), '已创建分组。', () => { name.value = ''; renderTags(); refresh(); });
     });
     const grid = make('div', 'category-tag-grid catalog-sort-tags');
@@ -703,6 +766,7 @@ function mountCatalogPanel(host, storage, connection) {
           setCount();
         });
         const rename = button('重命名或改色', () => editTag(group), 'pen', true);
+        rename.title = '重命名、改色或更换图标';
         const remove = button('删除标签', () => {
           if (!host.confirm('删除这个标签？其中的配置会保留。')) return;
           save(pane, catalog => ({
@@ -733,13 +797,15 @@ function mountCatalogPanel(host, storage, connection) {
       const name = fieldInput(group.name, '标签名称');
       const color = fieldInput(groupColor(group), '选择颜色', { type: 'color' });
       const row = make('div', 'new-category-row');
+      color.className = 'color-picker';
+      const appearance = tagIconPicker(group.icon);
       row.append(name, color);
-      child.scroll.append(row);
+      child.scroll.append(row, appearance.field);
       child.footer.append(closeButton(child, '取消'), button('保存', () => {
         const value = name.value.trim();
         if (!value) return;
         save(child, catalog => ({
-          ...catalog, groups: catalog.groups.map(item => item.id === group.id ? { ...item, name: value, color: color.value } : item),
+          ...catalog, groups: catalog.groups.map(item => item.id === group.id ? { ...item, name: value, color: color.value, icon: appearance.value() } : item),
         }), '已保存标签。', () => { renderTags(); refresh(); child.dialog.close(); });
       }, 'check'));
       child.open();
@@ -869,12 +935,15 @@ function mountCatalogPanel(host, storage, connection) {
       const colorChoices = new Map();
       if (result.colors.length) {
         const colors = make('div', 'sync-conflict-modal__colors');
-        colors.append(make('p', '', '合并时使用以下标签颜色。'));
+        const includesIcons = result.colors.some(conflict => conflict.localIcon || conflict.accountIcon);
+        colors.append(make('p', '', includesIcons ? '请选择合并后的标签颜色和图标。' : '合并时使用以下标签颜色。'));
         for (const [index, conflict] of result.colors.entries()) {
           const row = make('div', 'sync-conflict-modal__color-row');
           row.append(make('span', '', conflict.name));
-          for (const [side, label, color] of [
-            ['local', '本机颜色', conflict.localColor], ['account', '账户颜色', conflict.accountColor],
+          const hasIcons = conflict.localIcon || conflict.accountIcon;
+          for (const [side, label, color, iconName] of [
+            ['local', hasIcons ? '本机外观' : '本机颜色', conflict.localColor, conflict.localIcon],
+            ['account', hasIcons ? '账户外观' : '账户颜色', conflict.accountColor, conflict.accountIcon],
           ]) {
             const option = make('label');
             const input = make('input');
@@ -882,10 +951,9 @@ function mountCatalogPanel(host, storage, connection) {
             input.name = 'sync-color-' + index;
             input.checked = side === 'local';
             input.addEventListener('change', () => colorChoices.set(conflict.accountId, side));
-            const sample = make('span', 'category-color-dot');
-            sample.style.backgroundColor = groupColor({ color });
-            sample.setAttribute('aria-hidden', 'true');
-            option.append(input, sample, make('span', '', label));
+            option.append(input, groupMarker({ color }));
+            if (iconName) option.append(groupMarker({ icon: iconName }));
+            option.append(make('span', '', label));
             row.append(option);
           }
           colors.append(row);

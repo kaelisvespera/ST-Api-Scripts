@@ -150,8 +150,11 @@ async function openCatalogStorage(host, context, browserStorage) {
       const sameId = localById.get(group.id);
       const match = sameId?.name === group.name ? sameId
         : incomingNames.get(group.name) ? localNames.get(group.name) : undefined;
-      if (match && match.color !== group.color) colors.push({
+      if (!match) continue;
+      const accountIcon = incoming.legacy ? group.icon ?? match.icon : group.icon;
+      if (match.color !== group.color || match.icon !== accountIcon) colors.push({
         localId: match.id, accountId: group.id, name: group.name, localColor: match.color, accountColor: group.color,
+        localIcon: match.icon, accountIcon,
       });
     }
     const count = catalog => ({ entries: catalog.entries.length, groups: catalog.groups.length });
@@ -172,16 +175,24 @@ async function openCatalogStorage(host, context, browserStorage) {
           return '已使用本机数据并同步到账户。';
         }
         if (choice !== 'merge') throw new Error('请选择处理方式。');
-        const localColors = new Map(), accountColors = new Map();
-        for (const color of colors) {
-          const selected = colorChoices.get(color.accountId) === 'account' ? color.accountColor : color.localColor;
-          localColors.set(color.localId, selected);
-          accountColors.set(color.accountId, selected);
+        const localAppearances = new Map(), accountAppearances = new Map();
+        for (const group of colors) {
+          const useAccount = colorChoices.get(group.accountId) === 'account';
+          const selected = useAccount ? { color: group.accountColor, icon: group.accountIcon }
+            : { color: group.localColor, icon: group.localIcon };
+          localAppearances.set(group.localId, selected);
+          accountAppearances.set(group.accountId, selected);
         }
-        const applyColors = (catalog, choices) => ({
-          ...catalog, groups: catalog.groups.map(group => choices.has(group.id) ? { ...group, color: choices.get(group.id) } : group),
+        const applyAppearance = (catalog, choices) => ({
+          ...catalog, groups: catalog.groups.map(group => {
+            const selected = choices.get(group.id);
+            if (!selected) return group;
+            const { icon, ...rest } = group;
+            return { ...rest, color: selected.color, ...(selected.icon ? { icon: selected.icon } : {}) };
+          }),
         });
-        await upload(mergeCatalogs(applyColors(local, localColors), applyColors(incoming.catalog, accountColors), incoming.legacy));
+        await upload(mergeCatalogs(applyAppearance(local, localAppearances),
+          applyAppearance(incoming.catalog, accountAppearances), incoming.legacy));
         return '已合并配置并同步到账户。';
       }),
     };

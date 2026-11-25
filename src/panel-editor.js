@@ -1,7 +1,7 @@
 // The old editor groups a site's credentials and models in one dialog. The
 // draft tracks model rows per credential so saving cannot combine their IDs.
 function openCatalogEditor(ui, rows, afterSave) {
-  const { host, storage, popup, make, button, fieldInput, closeButton, save, run, refresh, groupColor } = ui;
+  const { host, storage, popup, make, button, fieldInput, closeButton, save, run, refresh, groupMarker } = ui;
   const original = rows[0];
   const pane = popup(original ? '编辑 API 配置' : '添加 API 配置', 'large');
   const form = make('form', 'st-native-api-form');
@@ -314,9 +314,7 @@ function openCatalogEditor(ui, rows, afterSave) {
             item.groupIds = control.checked ? labels([...item.groupIds, group.id]) : item.groupIds.filter(id => id !== group.id);
             summary.textContent = '分组' + (item.groupIds.length ? ' (' + item.groupIds.length + ')' : '');
           });
-          const dot = make('span', 'category-color-dot');
-          dot.style.backgroundColor = groupColor(group);
-          label.append(control, dot, make('span', 'category-tag-name', group.name));
+          label.append(control, groupMarker(group), make('span', 'category-tag-name', group.name));
           grid.append(label);
         }
         tags.append(summary, grid);

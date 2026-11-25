@@ -72,6 +72,63 @@ test('migrates grouped stores into individual model/key entries without losing h
   assert.equal(new Set(catalog.entries.map(row => row.rotationPoolId)).size, 1, 'old models share the ordered pool');
 });
 
+test('catalog round trip keeps tag colors and supported icons and ignores an unknown icon', () => {
+  const catalog = { ...api.emptyCatalog(), groups: [
+    { id: 'a', name: 'Claude 标签', color: '#123456', icon: 'claude' },
+    { id: 'b', name: 'Gemini 标签', color: '#345678', icon: 'gemini' },
+    { id: 'c', name: '旧标签', color: '#abcdef' },
+    { id: 'd', name: '外部样式', color: '#fedcba', icon: 'https://invalid.example/icon.svg' },
+  ] };
+  const imported = api.readCatalog(JSON.parse(JSON.stringify(catalog))).catalog;
+  assert.deepEqual(plain(imported.groups), [...catalog.groups.slice(0, 3), { id: 'd', name: '外部样式', color: '#fedcba' }]);
+  assert.deepEqual(plain(api.readCatalog(plain(imported)).catalog), plain(imported));
+});
+
+test('merging a conflicting tag icon retains both appearances and legacy merges keep the current icon', () => {
+  const source = plain(api.migrateCatalog(grouped, categories));
+  const local = plain(source);
+  local.groups[0].icon = 'claude';
+  const incoming = plain(source);
+  incoming.groups[0].icon = 'gemini';
+  const merged = api.mergeCatalogs(local, incoming);
+  const copy = merged.groups.find(group => group.conflictSourceId === local.groups[0].id);
+  assert.equal(merged.groups[0].icon, 'claude');
+  assert.equal(copy?.icon, 'gemini');
+  assert.equal(copy.color, local.groups[0].color);
+  assert.ok(merged.entries.some(row => row.groupIds.includes(copy.id)));
+  assert.deepEqual(plain(api.mergeCatalogs(merged, incoming)), plain(merged));
+  assert.deepEqual(plain(api.mergeCatalogs(local, source, true)), local);
+  const oldGroup = { ...source.groups[0], id: 'old-tag-id' };
+  const olderImport = { ...api.emptyCatalog(), groups: [oldGroup] };
+  assert.deepEqual(plain(api.mergeCatalogs(local, olderImport, true)), local);
+});
+
+for (const mode of ['st', 'tt']) {
+  test(mode + ' sync chooses a tag icon and preserves colors through upload and reopen', async () => {
+    const local = { ...api.emptyCatalog(), groups: [
+      { id: 'common', name: '现有标签', color: '#abcdef', icon: 'claude' },
+      { id: 'plain', name: '改回色点', color: '#fedcba', icon: 'gemini' },
+    ] };
+    const incoming = { ...local, groups: [
+      { ...local.groups[0], icon: 'gemini' },
+      { id: 'plain', name: '改回色点', color: '#fedcba' },
+    ] };
+    const account = new Map([[accountV2, JSON.stringify({ revision: 'newer', catalog: incoming })]]);
+    const state = { version: 1, values: { [keyV2]: JSON.stringify({ catalog: local, sync: { revision: null, pending: true } }) } };
+    const fixture = harness(mode, { state, account });
+    const storage = await fixture.open();
+    const conflict = await storage.pull();
+    assert.equal(conflict.colors.length, 2);
+    assert.equal(conflict.colors[0].localIcon, 'claude');
+    assert.equal(conflict.colors[0].accountIcon, 'gemini');
+    assert.equal(conflict.colors[1].accountIcon, undefined);
+    await conflict.resolve('merge', new Map([['common', 'account'], ['plain', 'account']]));
+    assert.deepEqual(plain(storage.catalog.groups), incoming.groups);
+    assert.deepEqual(JSON.parse(account.get(accountV2)).catalog.groups, incoming.groups);
+    assert.deepEqual(plain((await fixture.open()).catalog.groups), incoming.groups);
+  });
+}
+
 test('legacy import restores a missing credential to its existing pool without absorbing independent keys', () => {
   const local = api.migrateCatalog(grouped, categories);
   const dropped = { ...local, entries: local.entries.filter((_, index) => index !== 1) };
