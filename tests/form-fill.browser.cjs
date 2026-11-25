@@ -113,8 +113,14 @@ test('normal login and native ST credential fields do not offer plugin filling',
       form.innerHTML = '<label>登录密码 <input type="password" id="fixture-login"></label>';
       document.body.append(form);
       document.querySelector('#openai_settings').hidden = false;
+      const chat = document.querySelector('#chat') ?? document.body.appendChild(document.createElement('section'));
+      chat.id = 'chat';
+      const chatInput = document.createElement('input');
+      chatInput.id = 'fixture-chat-input';
+      chatInput.name = 'apiKey'; // The chat container takes precedence over metadata.
+      chat.append(chatInput);
     });
-    for (const selector of ['#fixture-login', '#custom_api_url_text', '#api_key_custom']) {
+    for (const selector of ['#fixture-login', '#custom_api_url_text', '#api_key_custom', '#fixture-chat-input']) {
       await tab.locator(selector).focus();
       assert.equal(await button(tab, '填入 API').count(), 0);
     }
@@ -142,3 +148,56 @@ test('a URL with embedded credentials is rejected before either field changes', 
     assert.deepEqual(await tab.evaluate(() => window.fillEvents), []);
     await assertConnection();
   }));
+
+
+// Input shapes from the four public editors. Use local markup and synthetic credentials.
+const shadowForms = [
+  ['st', '千千结', { url: 'URL', key: 'Key', placeholder: '输入 API Key' }],
+  ['tt', '千千结', { url: 'URL', key: 'Key', placeholder: '输入 API Key' }],
+  ['tt', '七日历', { url: 'URL', key: 'Key', placeholder: '已保存，留空保持不变', ids: 'sp-api-editor' }],
+  ['tt', '百面相', { url: 'URL', key: 'Key', placeholder: '已保存，留空保持不变', accessible: true }],
+  ['tt', '两三事', { url: '接口地址', key: '密钥', placeholder: '已保存，留空保持不变', ids: 'api-editor' }],
+];
+
+for (const [mode, name, layout] of shadowForms) test(mode + ': ' + name + ' shadow dialog fills one URL and Key pair', {
+  timeout: 30000,
+}, () => withBrowser(mode, async ({ tab, open, origin, assertConnection }) => {
+  await open();
+  await button(dialog(tab, 'API 管理器'), '关闭').click();
+  await tab.evaluate(({ url, key, placeholder, accessible, ids }) => {
+    const host = document.createElement('div');
+    host.id = 'fixture-custom-shadow';
+    document.body.append(host);
+    host.attachShadow({ mode: 'open' }).innerHTML =
+      '<section role="dialog" aria-labelledby="draft-title">' +
+      '<h2 id="draft-title">' + (placeholder.startsWith('输入') ? '新增 API' : '编辑 API') + '</h2><form>' +
+      '<label><span>预设名称</span><input type="text"></label>' +
+      '<label><span>' + url + '</span><input type="url" placeholder="https://example.invalid/v1"' +
+      (accessible ? ' aria-label="API 地址"' : '') + (ids ? ' id="' + ids + '-url"' : '') + '></label>' +
+      '<label><span>' + key + '</span><input type="password" placeholder="' + placeholder + '"' +
+      (accessible ? ' aria-label="API Key（留空保留已保存 Key）" autocomplete="new-password"' : '') +
+      (ids ? ' id="' + ids + '-key"' : '') + '></label>' +
+      '<label><span>模型</span><input type="text" placeholder="模型名称"></label>' +
+      '<button type="button">保存</button></form></section>';
+    host.shadowRoot.querySelector('button').focus();
+  }, layout);
+  const custom = tab.locator('#fixture-custom-shadow');
+  const url = custom.getByPlaceholder('https://example.invalid/v1');
+  const key = custom.getByPlaceholder(layout.placeholder);
+  await key.focus();
+  assert.equal(await button(custom, '填入 API').count(), 1, 'focus moved within the opened shadow root');
+  await url.tap();
+  const trigger = button(custom, '填入 API');
+  assert.equal(await url.evaluate(el => el.closest('label').nextElementSibling?.textContent), '填入 API');
+  // A framework can remove the extra button without blurring its field.
+  await trigger.evaluate(el => el.remove());
+  await url.tap();
+  await trigger.tap();
+  const picker = dialog(tab, '填入插件 API');
+  const pick = button(picker, /^填入 /).first();
+  await pick.tap();
+  await picker.waitFor({ state: 'hidden' });
+  assert.ok((await url.inputValue()).startsWith(origin));
+  assert.match(await key.inputValue(), /^fixture-key-/);
+  await assertConnection();
+}, { hasTouch: true }));

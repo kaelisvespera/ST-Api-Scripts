@@ -644,10 +644,29 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 
 /* Form filling uses the same dialog shell as the rest of the manager. */
 .st-api-manager .catalog-fill-search { width: 100%; box-sizing: border-box; margin: 0 0 8px; }
-.st-api-manager .catalog-fill-list { display: grid; gap: 6px; }
+.st-api-manager .catalog-fill-list { display: grid; gap: 8px; }
+.st-api-manager .catalog-fill-group-header {
+  display: flex; align-items: center; gap: 6px; min-height: 34px; box-sizing: border-box;
+  padding: 4px 5px; border-bottom: 1px solid var(--SmartThemeBorderColor); list-style: none; cursor: pointer;
+}
+.st-api-manager .catalog-fill-group-header::-webkit-details-marker { display: none; }
+.st-api-manager .catalog-fill-group-header:focus-visible { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: -2px; }
+.st-api-manager .catalog-fill-group-name { min-width: 0; overflow-wrap: anywhere; }
+.st-api-manager .catalog-fill-group-header .category-count { margin-inline-start: auto; }
+.st-api-manager .catalog-fill-group-arrow { flex: none; }
+.st-api-manager .catalog-fill-group[open] > .catalog-fill-group-header > .catalog-fill-group-arrow { transform: rotate(90deg); }
+.st-api-manager .catalog-fill-group-rows { display: grid; gap: 6px; padding-top: 6px; }
 .st-api-manager .catalog-fill-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px;
   padding: 6px 8px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px;
 }
 .st-api-manager .catalog-fill-summary { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .st-api-manager .catalog-fill-row > button { margin: 0; min-height: 32px; }
+
+.st-api-manager .catalog-extra-params {
+  padding: 8px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px;
+}
+.st-api-manager .catalog-extra-params summary { cursor: pointer; font-weight: 600; }
+.st-api-manager .catalog-extra-params textarea {
+  box-sizing: border-box; max-width: 100%; font: inherit; resize: vertical;
+}

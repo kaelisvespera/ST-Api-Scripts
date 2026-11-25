@@ -21,6 +21,33 @@ function createCatalogConnection(host, context, storage) {
     if (typeof host.$ === 'function') host.$(element).trigger('change');
     else element.dispatchEvent(new host.Event('change', { bubbles: true }));
   }
+  function setCustomAdditionalParameters(settings, extra) {
+    const parameters = {
+      include_body: extra?.includeBody ?? '',
+      exclude_body: extra?.excludeBody ?? '',
+      include_headers: extra?.includeHeaders ?? '',
+    };
+    const perSource = settings.additional_parameters_by_source;
+    if (perSource && typeof perSource === 'object' && !Array.isArray(perSource)) {
+      // TT 2.4 stores overrides per chat completion source and custom API format.
+      // This manager selects OpenAI-compatible Custom, whose key is "custom".
+      const existing = Object.hasOwn(perSource, 'custom') ? perSource.custom : undefined;
+      if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+        Object.assign(existing, parameters);
+      } else {
+        perSource.custom = parameters;
+      }
+      return;
+    }
+
+    // ST's native custom settings use flat properties and optional editor controls.
+    for (const [field, value] of Object.entries(parameters)) {
+      const setting = 'custom_' + field;
+      settings[setting] = value;
+      const input = $('#' + setting);
+      if (input) input.value = value;
+    }
+  }
   function setModel(element, value) {
     if (!element) return;
     if (element.tagName === 'SELECT' && ![...element.options].some(option => option.value === value)) {
@@ -66,7 +93,10 @@ function createCatalogConnection(host, context, storage) {
     if (!provider) throw new Error('当前酒馆适配暂不支持应用此来源，请在酒馆原生连接页配置。');
     if (!row.key.trim()) throw new Error('这条配置没有密钥，请先填写，以免误用酒馆里已有的密钥。');
     if (!row.model.trim()) throw new Error('这条配置没有模型，请先选择或填写模型。');
-    if (row.source === 'custom') endpointUrl(row.url);
+    if (row.source === 'custom') {
+      endpointUrl(row.url);
+      if (row.extra) await validateEntryExtraYaml(host, row.extra);
+    }
     const settings = context.chatCompletionSettings;
     const api = $('#main_api');
     const source = $('#chat_completion_source');
@@ -94,6 +124,7 @@ function createCatalogConnection(host, context, storage) {
       if (row.source === 'custom') {
         settings.custom_url = row.url;
         settings.custom_api_format = 'openai_compat';
+        setCustomAdditionalParameters(settings, row.extra);
         const endpoint = $('#custom_api_url_text');
         if (endpoint) endpoint.value = row.url;
       }

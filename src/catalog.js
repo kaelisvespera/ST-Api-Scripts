@@ -10,6 +10,14 @@ const formatError = () => new Error('配置文件格式无效，原有配置已�
 const credentialScope = row => JSON.stringify([row.site, row.source, row.url, row.key]);
 const credentialRef = row => row.credentialId ? 'id:' + row.credentialId : 'key:' + row.key;
 const isGroupIcon = value => value === 'claude' || value === 'gemini';
+const entryExtraFields = ['includeBody', 'excludeBody', 'includeHeaders'];
+
+function normalizeEntryExtra(extra) {
+  if (!isObject(extra) || entryExtraFields.some(key => Object.hasOwn(extra, key) && !isText(extra[key]))) {
+    throw formatError();
+  }
+  return Object.fromEntries(entryExtraFields.map(key => [key, Object.hasOwn(extra, key) ? extra[key] : '']));
+}
 
 function validateCatalog(value) {
   if (!isObject(value) || value.format !== catalogFormat || value.version !== 2 ||
@@ -26,9 +34,10 @@ function validateCatalog(value) {
     if (!isObject(note) || !isText(note.id) || !note.id || notes.has(note.id) || !isText(note.note)) throw formatError();
     notes.set(note.id, null);
   }
-  const entries = new Set();
-  for (const row of value.entries) {
-    if (!isObject(row) || !row.id || !isText(row.id) || entries.has(row.id) ||
+  const entryIds = new Set();
+  let entries = value.entries;
+  for (const [index, row] of value.entries.entries()) {
+    if (!isObject(row) || !row.id || !isText(row.id) || entryIds.has(row.id) ||
         ![row.site, row.name, row.source, row.url, row.model, row.key].every(isText) ||
         !Array.isArray(row.groupIds) || row.groupIds.some(id => !groups.has(id))) throw formatError();
     if (Object.hasOwn(row, 'modelNote') && !isText(row.modelNote)) throw formatError();
@@ -39,9 +48,14 @@ function validateCatalog(value) {
       if (previous !== null && previous !== scope) throw formatError();
       notes.set(row.credentialId, scope);
     }
-    entries.add(row.id);
+    if (Object.hasOwn(row, 'extra')) {
+      const extra = normalizeEntryExtra(row.extra);
+      if (entries === value.entries) entries = [...entries];
+      entries[index] = { ...row, extra };
+    }
+    entryIds.add(row.id);
   }
-  const normalized = normalizeGroupOrders(value);
+  const normalized = normalizeGroupOrders(entries === value.entries ? value : { ...value, entries });
   if (!value.groups.some(group => Object.hasOwn(group, 'icon') && !isGroupIcon(group.icon))) return normalized;
   return { ...normalized, groups: value.groups.map(group => {
     if (!Object.hasOwn(group, 'icon') || isGroupIcon(group.icon)) return group;
@@ -162,7 +176,7 @@ function canonical(value) {
     .map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
   return JSON.stringify(value);
 }
-const legacyRecordContent = ({ id, rotationPoolId, credentialId, modelNote, ...value }) => canonical(value);
+const legacyRecordContent = ({ id, rotationPoolId, credentialId, modelNote, extra, ...value }) => canonical(value);
 const conflictContent = ({ id, conflictSourceId, ...value }) => canonical(value);
 
 function mergeCatalogRecords(local, incoming, legacy, compatible, legacyContent = legacyRecordContent) {
@@ -200,6 +214,7 @@ function mergeCatalogRecords(local, incoming, legacy, compatible, legacyContent 
 
 function mergeEntryMetadata(left, right) {
   if (legacyRecordContent(left) !== legacyRecordContent(right)) return;
+  if (Object.hasOwn(left, 'extra') && Object.hasOwn(right, 'extra') && canonical(left.extra) !== canonical(right.extra)) return;
   for (const field of ['rotationPoolId', 'credentialId', 'modelNote']) {
     if (Object.hasOwn(left, field) && Object.hasOwn(right, field) && left[field] !== right[field]) return;
   }

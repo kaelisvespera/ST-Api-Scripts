@@ -72,6 +72,62 @@ test('migrates grouped stores into individual model/key entries without losing h
   assert.equal(new Set(catalog.entries.map(row => row.rotationPoolId)).size, 1, 'old models share the ordered pool');
 });
 
+const extraYaml = {
+  includeBody: "vendor:\r\n  flags:\r\n    - 'alpha'\r\n",
+  excludeBody: '# preserve leading comment\n- stream_options\n',
+  includeHeaders: 'X-Fixture-Label: fixture-test\n',
+};
+const clearedExtra = { includeBody: '', excludeBody: '', includeHeaders: '' };
+
+test('catalog import keeps raw additional parameter YAML and normalizes the allowed fields', () => {
+  const catalog = plain(api.migrateCatalog(grouped, categories));
+  catalog.entries[0].extra = { ...extraYaml, unrecognized: { junk: true } };
+  catalog.entries[1].extra = { includeHeaders: extraYaml.includeHeaders };
+  const imported = plain(api.readCatalog(catalog).catalog);
+  assert.deepEqual(imported.entries[0].extra, extraYaml);
+  assert.deepEqual(imported.entries[1].extra, { ...clearedExtra, includeHeaders: extraYaml.includeHeaders });
+  assert.equal(Object.hasOwn(imported.entries[2], 'extra'), false);
+  assert.deepEqual(plain(api.readCatalog(plain(imported)).catalog), imported);
+  for (const invalid of [null, [], 5, { includeBody: [] }, { excludeBody: null }, { includeHeaders: 42 }]) {
+    catalog.entries[0].extra = invalid;
+    assert.throws(() => api.readCatalog(catalog), /格式无效/);
+  }
+});
+
+test('catalog merge retains additional parameters missing in older rows and keeps explicit clears as conflicts', () => {
+  const original = plain(api.migrateCatalog(grouped, categories));
+  const withExtra = plain(original);
+  const id = withExtra.entries[0].id;
+  withExtra.entries[0].extra = extraYaml;
+  assert.deepEqual(plain(api.mergeCatalogs(original, withExtra)), withExtra);
+  assert.deepEqual(plain(api.mergeCatalogs(withExtra, original)), withExtra);
+  const newLegacy = api.readCatalog({ configStore: plain(grouped), categories: plain(categories) });
+  const merged = plain(api.mergeCatalogs(withExtra, newLegacy.catalog, newLegacy.legacy));
+  assert.deepEqual(merged, withExtra);
+  const clearing = plain(original);
+  clearing.entries[0].extra = clearedExtra;
+  const copies = plain(api.mergeCatalogs(withExtra, clearing));
+  assert.deepEqual(copies.entries.find(row => row.id === id).extra, extraYaml);
+  const cleared = copies.entries.find(row => row.conflictSourceId === id);
+  assert.deepEqual(cleared.extra, clearedExtra);
+  assert.equal(copies.entries.length, original.entries.length + 1);
+  assert.deepEqual(plain(api.mergeCatalogs(copies, clearing)), copies);
+});
+
+for (const mode of ['st', 'tt']) test(mode + ': additional parameter YAML persists and synchronizes per entry', async () => {
+  const fixture = harness(mode, { legacy: legacyValues });
+  const storage = await fixture.open();
+  const [first, second] = storage.catalog.entries;
+  const parameterized = { ...first, extra: extraYaml };
+  await storage.update(catalog => ({ ...catalog, entries: [parameterized, second] }));
+  await storage.push();
+  const reopened = await fixture.open();
+  assert.deepEqual(plain(reopened.catalog.entries[0].extra), extraYaml);
+  assert.equal(Object.hasOwn(reopened.catalog.entries[1], 'extra'), false);
+  const account = JSON.parse(fixture.account.get(accountV2));
+  assert.deepEqual(account.catalog.entries.map(row => row.extra), [extraYaml, undefined]);
+});
+
 test('catalog round trip keeps tag colors and supported icons and ignores an unknown icon', () => {
   const catalog = { ...api.emptyCatalog(), groups: [
     { id: 'a', name: 'Claude 标签', color: '#123456', icon: 'claude' },

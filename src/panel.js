@@ -553,7 +553,7 @@ function mountCatalogPanel(host, storage, connection) {
     pane.open();
   }
   const edit = (rows, afterSave) => openCatalogEditor({
-    host, storage, popup, make, button, fieldInput, closeButton, save, run, refresh, groupMarker,
+    host, storage, popup, make, button, fieldInput, closeButton, run, refresh, groupMarker,
   }, rows, afterSave);
 
   function filters() {
@@ -1027,33 +1027,61 @@ function mountCatalogPanel(host, storage, connection) {
     const presentations = rowPresentations(sites());
     search.classList.add('catalog-fill-search');
     pane.scroll.append(search, list);
+    const pickerCollapsed = new Set(collapsed);
+    function renderRow(row) {
+      const { keyLabel, keyNote } = presentations.get(row.id) ?? {};
+      const item = make('div', 'catalog-fill-row');
+      const summary = make('div', 'catalog-fill-summary');
+      const title = rowTitle(row) || '未命名配置';
+      summary.append(make('strong', '', title));
+      let endpointHost;
+      try {
+        endpointHost = endpointUrl(row.url.trim() || (Object.hasOwn(defaultEndpoints, row.source) ? defaultEndpoints[row.source] : '')).host;
+      } catch { /* Some entries only contain a key. */ }
+      const details = [endpointHost, keyLabel, keyNote, row.modelNote].filter(Boolean).join(' · ');
+      if (details) summary.append(make('small', '', details));
+      const fill = button('填入', () => run(pane, () => {
+        const current = storage.catalog.entries.find(entry => entry.id === row.id);
+        if (!current || current.url !== row.url || current.key !== row.key || current.source !== row.source) {
+          throw new Error('这条配置已变化，请关闭后重新选择。');
+        }
+        return plan.fill(current);
+      }, undefined, () => pane.dialog.close()), 'paste');
+      fill.setAttribute('aria-label', ['填入', title, keyLabel].filter(Boolean).join(' '));
+      item.append(summary, fill);
+      return item;
+    }
     function render() {
       list.replaceChildren();
       const terms = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-      for (const row of storage.catalog.entries) {
+      const catalog = storage.catalog;
+      const matching = new Set(catalog.entries.filter(row => {
         const { keyLabel, keyNote, alias } = presentations.get(row.id) ?? {};
         const searchable = [row.site, row.model, keyLabel, keyNote, row.modelNote, alias].join(' ').toLowerCase();
-        if (!terms.every(term => searchable.includes(term))) continue;
-        const item = make('div', 'catalog-fill-row');
-        const summary = make('div', 'catalog-fill-summary');
-        const title = rowTitle(row) || '未命名配置';
-        summary.append(make('strong', '', title));
-        let endpointHost;
-        try {
-          endpointHost = endpointUrl(row.url.trim() || (Object.hasOwn(defaultEndpoints, row.source) ? defaultEndpoints[row.source] : '')).host;
-        } catch { /* Some entries only contain a key. */ }
-        const details = [endpointHost, keyLabel, keyNote, row.modelNote].filter(Boolean).join(' · ');
-        if (details) summary.append(make('small', '', details));
-        const fill = button('填入', () => run(pane, () => {
-          const current = storage.catalog.entries.find(entry => entry.id === row.id);
-          if (!current || current.url !== row.url || current.key !== row.key || current.source !== row.source) {
-            throw new Error('这条配置已变化，请关闭后重新选择。');
-          }
-          return plan.fill(current);
-        }, undefined, () => pane.dialog.close()), 'paste');
-        fill.setAttribute('aria-label', ['填入', title, keyLabel].filter(Boolean).join(' '));
-        item.append(summary, fill);
-        list.append(item);
+        return terms.every(term => searchable.includes(term));
+      }).map(row => row.id));
+      for (const group of [{ id: unassigned, name: '未分类' }, ...catalog.groups]) {
+        const rows = orderedGroupEntries(catalog, group.id === unassigned ? null : group.id)
+          .filter(row => matching.has(row.id));
+        if (!rows.length) continue;
+        const section = make('details', 'catalog-fill-group');
+        section.open = terms.length > 0 || !pickerCollapsed.has(group.id);
+        const header = make('summary', 'catalog-fill-group-header');
+        const title = make('b', 'catalog-fill-group-name', group.name);
+        if (group.id !== unassigned) title.style.color = groupColor(group);
+        if (group.icon) header.append(groupMarker(group));
+        const arrow = icon('chevron-right');
+        arrow.classList.add('catalog-fill-group-arrow');
+        header.append(title, make('small', 'category-count', '(' + rows.length + ')'), arrow);
+        const items = make('div', 'catalog-fill-group-rows');
+        items.append(...rows.map(renderRow));
+        section.append(header, items);
+        section.addEventListener('toggle', () => {
+          if (terms.length || !section.isConnected) return;
+          if (section.open) pickerCollapsed.delete(group.id);
+          else pickerCollapsed.add(group.id);
+        });
+        list.append(section);
       }
       if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '没有找到 API 配置。'));
     }

@@ -1,7 +1,7 @@
 // The old editor groups a site's credentials and models in one dialog. The
 // draft tracks model rows per credential so saving cannot combine their IDs.
 function openCatalogEditor(ui, rows, afterSave) {
-  const { host, storage, popup, make, button, fieldInput, closeButton, save, run, refresh, groupMarker } = ui;
+  const { host, storage, popup, make, button, fieldInput, closeButton, run, refresh, groupMarker } = ui;
   const original = rows[0];
   const pane = popup(original ? '编辑 API 配置' : '添加 API 配置', 'large');
   const form = make('form', 'st-native-api-form');
@@ -43,6 +43,42 @@ function openCatalogEditor(ui, rows, afterSave) {
   field('自定义端点（基础 URL）', url, '可填写基础 URL，拉取模型时会自动处理 /v1 和 /chat/completions 后缀。');
   const note = rows.length === 1 ? fieldInput(original.name, '条目备注（可选）') : null;
   if (note) field('条目备注（可选）', note);
+
+  const extra = make('details', 'catalog-extra-params');
+  extra.append(make('summary', '', '附加参数'));
+  const initialExtra = normalizeEntryExtra(original?.extra ?? {});
+  const variedExtras = rows.some(row =>
+    entryExtraFields.some(name => (row.extra?.[name] ?? '') !== initialExtra[name]));
+  let extraTouched = false;
+  const extraInputs = new Map();
+  if (variedExtras) {
+    extra.append(make('p', 'st-native-hint', '组内配置使用不同的附加参数。请从主列表打开单条配置编辑。'));
+  } else {
+    extra.append(make('p', 'st-native-hint', rows.length > 1
+      ? '这里的设置会应用于本次保存的所有自定义 API 条目。留空表示不添加。'
+      : '应用这条自定义 API 时写入酒馆的原生设置。留空表示不添加。'));
+    for (const [name, label, example] of [
+      ['includeBody', '包含主体参数', 'top_k: 20\nrepetition_penalty: 1.1'],
+      ['excludeBody', '排除主体参数', '- frequency_penalty\n- presence_penalty'],
+      ['includeHeaders', '包含请求标头', 'CustomHeader: 自定义值'],
+    ]) {
+      const wrap = make('label', 'catalog-note-field');
+      const input = make('textarea', 'text_pole wide100p');
+      input.rows = 3;
+      input.spellcheck = false;
+      input.value = initialExtra[name];
+      input.placeholder = example;
+      input.addEventListener('input', () => { extraTouched = true; });
+      wrap.append(make('span', '', label), input);
+      extra.append(wrap);
+      extraInputs.set(name, input);
+    }
+    extra.open = entryExtraFields.some(name => initialExtra[name].trim());
+  }
+  const showExtra = () => { extra.hidden = source.value !== 'custom'; };
+  source.addEventListener('change', showExtra);
+  showExtra();
+  form.append(extra);
 
   const drafts = [];
   const draftByKey = new Map();
@@ -397,7 +433,9 @@ function openCatalogEditor(ui, rows, afterSave) {
   form.addEventListener('submit', event => {
     event.preventDefault();
     const existingIds = new Set(rows.map(row => row.id));
-    save(pane, catalog => {
+    const entryExtra = source.value === 'custom' && !variedExtras && extraTouched
+      ? Object.fromEntries([...extraInputs].map(([name, input]) => [name, input.value])) : undefined;
+    const updateCatalog = catalog => {
       if (!site.value.trim()) throw new Error('请填写配置组名称。');
       if (addInput.value) incorporateKey();
       if (!drafts.length && !original) addDraft('');
@@ -427,6 +465,8 @@ function openCatalogEditor(ui, rows, afterSave) {
             name: note && item.row ? note.value.trim() : item.row?.name ?? '',
             groupIds: item.groupIds,
           };
+          if (entryExtra) row.extra = entryExtra;
+          else if (!item.row && fields.source === 'custom' && !variedExtras && original?.extra) row.extra = original.extra;
           if (credentialId) row.credentialId = credentialId;
           const modelNote = item.note.trim();
           if (modelNote || Object.hasOwn(row, 'modelNote')) row.modelNote = modelNote;
@@ -443,6 +483,10 @@ function openCatalogEditor(ui, rows, afterSave) {
           return [credentialId ? { ...row, credentialId } : row];
         }).concat(added),
       };
+    };
+    run(pane, async () => {
+      if (entryExtra) await validateEntryExtraYaml(host, entryExtra);
+      await storage.update(updateCatalog);
     }, '已保存配置。', () => {
       refresh();
       pane.dialog.close();

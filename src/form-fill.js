@@ -11,7 +11,19 @@ function mountCatalogFormFill(host, showPicker) {
   const scopeSelector = 'form, fieldset, dialog, [role="form"], [role="dialog"], .popup, .inline-drawer-content, '
     + '[data-extension], [data-extension-id], [data-extension-name], [data-plugin], [data-plugin-id], [data-plugin-name]';
   const fieldLabels = { url: 'API 地址', key: 'API Key' };
+  const watchedRoots = new WeakSet();
   let current;
+
+  function accessibleLabel(element) {
+    const labeledBy = (element?.getAttribute?.('aria-labelledby') ?? '').trim().split(/\s+/).filter(Boolean);
+    const root = element?.getRootNode();
+    return element?.getAttribute?.('aria-label')?.trim() ||
+      labeledBy.map(id => root?.getElementById?.(id)?.textContent?.trim()).filter(Boolean).join(' ');
+  }
+
+  function scopeTitle(scope) {
+    return accessibleLabel(scope) || accessibleLabel(scope?.closest?.('dialog, [role="dialog"]'));
+  }
 
   function insideExcluded(input) {
     for (let node = input; node; node = node.getRootNode().host) {
@@ -38,14 +50,18 @@ function mountCatalogFormFill(host, showPicker) {
         .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2')
         .toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim());
     const autocomplete = input.autocomplete.toLowerCase().split(/\s+/);
-    if (autocomplete.some(value => ['username', 'current-password', 'new-password', 'one-time-code'].includes(value)) ||
+    if (autocomplete.some(value => ['username', 'current-password', 'one-time-code'].includes(value)) ||
       hints.some(text => /\b(?:login|sign in)\b|登录(?:密码|口令)/.test(text))) return undefined;
 
     const apiKey = input.type !== 'url' && hints.some(text => /\b(?:api\s*(?:key|token|secret)|(?:llm|openai|claude|gemini|deepseek|anthropic)\s+(?:key|token))\b|(?:api|接口|中转)\s*(?:密钥|秘钥|令牌)/.test(text));
     const apiUrl = input.type !== 'password' && hints.some(text =>
       /\b(?:base\s*(?:url|uri)|(?:api|llm|openai|proxy)\s*(?:base\s*)?(?:url|uri|endpoint|address)|(?:api\s+)?endpoint\s+(?:url|uri|address))\b|(?:api|接口|中转|代理|反代|模型)\s*(?:地址|端点|链接|url|网址)/.test(text));
-    if (apiKey === apiUrl) return undefined;
-    return apiKey ? 'key' : 'url';
+    if (apiKey && apiUrl) return undefined;
+    if (apiKey) return autocomplete.includes('new-password') ? 'guarded-key' : 'key';
+    if (apiUrl) return 'url';
+    if (input.type === 'url' && hints.includes('url')) return 'plain-url';
+    if (input.type === 'password' && hints.some(text => /^(?:key|密钥|秘钥)$/.test(text))) return 'plain-key';
+    return undefined;
   }
 
   function scopeOf(input) {
@@ -58,14 +74,25 @@ function mountCatalogFormFill(host, showPicker) {
   function scopedFields(input, scope) {
     const kind = fieldKind(input);
     if (!kind) return [];
-    const focused = { input, kind };
-    if (!scope) return [focused];
+    if (!scope) return kind === 'url' || kind === 'key' ? [{ input, kind }] : [];
     const candidates = [...scope.querySelectorAll('input')]
       .filter(field => scopeOf(field) === scope && field.form === input.form)
       .map(field => ({ input: field, kind: fieldKind(field) })).filter(field => field.kind);
-    const partner = candidates.find(field => field.kind !== kind);
+    const namedApi = /\bapi\b/i.test(scopeTitle(scope));
+    const strongUrl = candidates.some(field => field.kind === 'url');
+    const strongKey = candidates.some(field => field.kind === 'key' || field.kind === 'guarded-key');
+    const knownUrl = strongUrl || ((strongKey || namedApi) && candidates.some(field => field.kind === 'plain-url'));
+    const eligible = candidates.flatMap(field => {
+      if (field.kind === 'url' || field.kind === 'key') return [field];
+      if (field.kind === 'plain-url') return strongKey || namedApi ? [{ ...field, kind: 'url' }] : [];
+      if (field.kind === 'plain-key') return strongUrl || (namedApi && knownUrl) ? [{ ...field, kind: 'key' }] : [];
+      return knownUrl ? [{ ...field, kind: 'key' }] : [];
+    });
+    const focused = eligible.find(field => field.input === input);
+    if (!focused) return [];
+    const partner = eligible.find(field => field.kind !== focused.kind);
     if (!partner) return [focused];
-    return candidates.length === 2 ? [focused, partner] : null;
+    return eligible.length === 2 ? [focused, partner] : null;
   }
 
   function fill(input, scope, parent, form, fields, row) {
@@ -108,19 +135,37 @@ function mountCatalogFormFill(host, showPicker) {
     return '已填入' + labels + '。';
   }
 
-  doc.addEventListener('focusin', event => {
+  function activateField(event) {
     const path = event.composedPath();
+    for (const root of path) {
+      if (!root?.host || root.nodeType !== 11 || watchedRoots.has(root)) continue;
+      watchedRoots.add(root);
+      // Focus changes within one shadow root may be invisible outside it.
+      root.addEventListener('focusin', activateField, true);
+    }
     if (path.some(node => node.matches?.(ownUI))) return;
     const input = path.find(node => node instanceof Input);
-    if (current?.input === input && current?.button.isConnected && fieldKind(input)) return;
+    if (event.type === 'click' && !input) return;
+    const kind = fieldKind(input);
+    if (current?.input === input && current?.button.isConnected && kind) return;
     current?.button.remove();
     current = undefined;
-    if (!fieldKind(input)) return;
+    if (!kind || (kind !== 'url' && kind !== 'key' && scopedFields(input, scopeOf(input))?.length === 0)) return;
 
     const button = doc.createElement('button');
     button.type = 'button';
     button.className = 'menu_button catalog-form-fill-trigger';
     button.textContent = '填入 API';
+    if (input.getRootNode().host) {
+      // Tavern's button stylesheet does not reach another extension's shadow root.
+      Object.assign(button.style, {
+        display: 'inline-flex', alignItems: 'center', alignSelf: 'start', justifySelf: 'start',
+        marginBlock: '4px', minHeight: '32px', padding: '3px 9px', borderRadius: '6px',
+        font: 'inherit', cursor: 'pointer', color: 'var(--SmartThemeBodyColor, ButtonText)',
+        background: 'var(--SmartThemeBlurTintColor, ButtonFace)',
+        border: '1px solid var(--SmartThemeBorderColor, currentColor)',
+      });
+    }
     const anchor = input.closest('label') ?? input;
     button.addEventListener('click', event => {
       event.preventDefault();
@@ -141,7 +186,7 @@ function mountCatalogFormFill(host, showPicker) {
         });
         return;
       }
-      const scopeLabel = scope?.getAttribute?.('aria-label')?.trim().slice(0, 80);
+      const scopeLabel = scopeTitle(scope).slice(0, 80);
       showPicker({
         fields: fields.map(({ kind }) => ({ kind, label: fieldLabels[kind] })),
         scopeLabel,
@@ -150,5 +195,7 @@ function mountCatalogFormFill(host, showPicker) {
     });
     anchor.after(button);
     current = { input, button };
-  }, true);
+  }
+  doc.addEventListener('focusin', activateField, true);
+  doc.addEventListener('click', activateField, true);
 }
