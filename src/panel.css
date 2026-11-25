@@ -43,13 +43,12 @@ dialog.st-api-manager.popup {
   background: var(--SmartThemeBlurTintColor, #27282d);
   border: 1px solid var(--SmartThemeBorderColor, #555);
   border-radius: 10px;
-  box-shadow: 0 6px 28px var(--SmartThemeShadowColor, #0007);
   text-align: left;
 }
 dialog.st-api-manager.popup:not([open]) { display: none; }
 dialog.st-api-manager.popup.st-api-manager-native-dialog--large { --catalog-dialog-width: 800px; }
 dialog.st-api-manager.popup.st-api-manager-native-dialog--small { --catalog-dialog-width: 480px; }
-dialog.st-api-manager.popup.st-api-manager-native-dialog:not([data-nested]) { box-shadow: none !important; }
+dialog.st-api-manager.popup.st-api-manager-native-dialog { box-shadow: none !important; }
 dialog.st-api-manager.popup::backdrop { background: rgba(15, 18, 28, .52); }
 dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager.popup .popup-body,

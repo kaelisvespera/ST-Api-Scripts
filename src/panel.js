@@ -47,32 +47,30 @@ function mountCatalogPanel(host, storage, connection) {
     frame.append(content, status, footer);
     dialog.append(frame);
     dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
-    if (main) {
-      let backdropPointer = null;
-      const hitsBackdrop = event => {
-        if (event.target !== dialog) return false;
-        const { left, right, top, bottom } = dialog.getBoundingClientRect();
-        return event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom;
-      };
-      // Native dialogs retarget backdrop events to the dialog itself. Require
-      // both ends outside so a drag across its edge does not dismiss it.
-      dialog.addEventListener('pointerdown', event => {
-        if (!event.isPrimary || event.button !== 0) return;
-        backdropPointer = !busy && hitsBackdrop(event) ? event.pointerId : null;
-      });
-      dialog.addEventListener('pointercancel', event => {
-        if (event.pointerId === backdropPointer) backdropPointer = null;
-      });
-      dialog.addEventListener('click', event => {
-        const startedOutside = backdropPointer !== null
-          && (event.pointerId === undefined || event.pointerId === backdropPointer);
-        backdropPointer = null;
-        if (!startedOutside || !event.detail || busy || !hitsBackdrop(event)) return;
-        event.stopPropagation();
-        dialog.close();
-      });
-      dialog.addEventListener('close', () => { backdropPointer = null; });
-    }
+    let backdropPointer = null;
+    const hitsBackdrop = event => {
+      if (event.target !== dialog) return false;
+      const { left, right, top, bottom } = dialog.getBoundingClientRect();
+      return event.clientX < left || event.clientX >= right || event.clientY < top || event.clientY >= bottom;
+    };
+    // Native dialogs retarget backdrop events to the dialog itself. Require
+    // both ends outside so a drag across its edge does not dismiss it.
+    dialog.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0) return;
+      backdropPointer = !busy && hitsBackdrop(event) ? event.pointerId : null;
+    });
+    dialog.addEventListener('pointercancel', event => {
+      if (event.pointerId === backdropPointer) backdropPointer = null;
+    });
+    dialog.addEventListener('click', event => {
+      const startedOutside = backdropPointer !== null
+        && (event.pointerId === undefined || event.pointerId === backdropPointer);
+      backdropPointer = null;
+      if (!startedOutside || !event.detail || busy || !hitsBackdrop(event)) return;
+      event.stopPropagation();
+      dialog.close();
+    });
+    dialog.addEventListener('close', () => { backdropPointer = null; });
     dialog.addEventListener('close', () => {
       if (!main) dialog.remove();
     });
