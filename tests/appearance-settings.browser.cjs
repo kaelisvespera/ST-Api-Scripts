@@ -21,9 +21,13 @@ async function palette(dialog) {
       return [...context.getImageData(0, 0, 1, 1).data];
     };
     const control = element.querySelector('button');
+    const range = element.querySelector('input[type="range"]');
     return {
       mode: element.dataset.catalogTheme,
       background: rgba(css.backgroundColor), text: rgba(css.color),
+      backgroundCss: css.backgroundColor, accentCss: css.getPropertyValue('--catalog-accent').trim(),
+      controlBackground: rgba(getComputedStyle(control).backgroundColor),
+      rangeAccent: range ? getComputedStyle(range).accentColor : null,
       wholeOpacity: css.opacity, buttonOpacity: getComputedStyle(control).opacity,
     };
   });
@@ -32,16 +36,36 @@ async function palette(dialog) {
 async function openThemes(tab, main) {
   await button(main, '设置').tap();
   const hub = pane(tab, '设置');
+  const entries = await hub.locator('.catalog-settings-list button').evaluateAll(items =>
+    items.map(item => item.getAttribute('aria-label')));
+  assert.deepEqual(entries, ['标签设置', '主题设置', '数据']);
   await button(hub, '主题设置').tap();
   return { hub, theme: pane(tab, '主题设置') };
 }
 
-async function setHostTheme(tab, mode) {
-  const dark = mode === 'dark';
-  await tab.evaluate(([ink, tint]) => {
+const fixtureThemes = {
+  light: ['#312522', 'rgba(241, 224, 208, 0.30)', '#80512d'],
+  cool: ['#1a2635', 'rgba(206, 225, 246, 0.35)', '#315b89'],
+  dark: ['#e4dfe2', 'rgba(47, 36, 52, 0.34)', '#bba8cc'],
+};
+
+async function setHostTheme(tab, name) {
+  await tab.evaluate(([ink, tint, accent]) => {
     document.documentElement.style.setProperty('--SmartThemeBodyColor', ink);
     document.documentElement.style.setProperty('--SmartThemeBlurTintColor', tint);
-  }, dark ? ['#e4dfe2', 'rgba(47, 36, 52, 0.34)'] : ['#282625', 'rgba(240, 232, 217, 0.28)']);
+    document.documentElement.style.setProperty('--SmartThemeQuoteColor', accent);
+  }, fixtureThemes[name]);
+}
+
+async function waitPaletteChange(tab, dialogs) {
+  await tab.waitForFunction(previous => Object.entries(previous).every(([name, colors]) => {
+    const element = [...document.querySelectorAll('dialog[open]')]
+      .find(dialog => dialog.getAttribute('aria-label') === name);
+    if (!element) return false;
+    const css = getComputedStyle(element);
+    return css.backgroundColor !== colors.backgroundCss
+      && css.getPropertyValue('--catalog-accent').trim() !== colors.accentCss;
+  }), dialogs);
 }
 
 async function waitMode(tab, name, mode) {
@@ -87,28 +111,48 @@ for (const [mode, width] of [['st', 320], ['tt', 390]]) {
       await tab.evaluate(() => {
         const outside = document.createElement('div');
         outside.id = 'outside-appearance-probe';
-        outside.style.cssText = 'background-color:var(--SmartThemeBlurTintColor);color:var(--SmartThemeBodyColor)';
+        outside.style.cssText = 'background-color:var(--SmartThemeBlurTintColor);color:var(--SmartThemeBodyColor);'
+          + 'border-color:var(--SmartThemeQuoteColor)';
         document.body.append(outside);
       });
       const hostProbe = tab.locator('#outside-appearance-probe');
       const hostColors = () => hostProbe.evaluate(element => {
         const style = getComputedStyle(element);
-        return [style.color, style.backgroundColor];
+        return [style.color, style.backgroundColor, style.borderTopColor];
       });
 
       await setHostTheme(tab, 'light');
       await waitMode(tab, 'API 管理器', 'light');
       const day = await palette(main);
       assert.equal(day.background[3], 255);
+      const { hub, theme } = await openThemes(tab, main);
+      const warmModal = await palette(theme);
+      const hint = theme.getByText('正在跟随酒馆主题。透明度只作用于面板底色。', { exact: true });
+      await hint.waitFor();
+      await setHostTheme(tab, 'cool');
+      await waitPaletteChange(tab, { 'API 管理器': day, '主题设置': warmModal });
+      const coolHost = await hostColors();
+      const coolMain = await palette(main);
+      const coolModal = await palette(theme);
+      for (const [warm, cool] of [[day, coolMain], [warmModal, coolModal]]) {
+        assert.equal(warm.mode, 'light');
+        assert.equal(cool.mode, 'light');
+        assert.equal(cool.background[3], 255);
+        assert(warm.background[0] > warm.background[2] + 8);
+        assert(cool.background[2] > cool.background[0] + 8);
+        assert.notDeepEqual(cool.controlBackground, warm.controlBackground);
+      }
+      assert.notEqual(coolModal.rangeAccent, warmModal.rangeAccent);
+      await hint.waitFor();
       await setHostTheme(tab, 'dark');
       await waitMode(tab, 'API 管理器', 'dark');
+      await waitMode(tab, '主题设置', 'dark');
       const host = await hostColors();
       const night = await palette(main);
       assert.equal(night.background[3], 255);
       assert(day.background[0] > 180 && night.background[0] < 80);
       assert(day.text[0] < 100 && night.text[0] > 180);
 
-      const { hub, theme } = await openThemes(tab, main);
       const follow = theme.getByLabel('跟随 ST/TT 主题', { exact: true });
       const slider = theme.getByRole('slider', { name: '面板透明度' });
       assert(await follow.isChecked());
@@ -130,7 +174,15 @@ for (const [mode, width] of [['st', 320], ['tt', 390]]) {
       await waitMode(tab, '主题设置', 'light');
       assert.equal(await follow.isChecked(), false);
       assert.equal(await slider.count(), 0);
-      assert.equal((await palette(theme)).background[3], 255);
+      const manualDay = await palette(theme);
+      const manualDayMain = await palette(main);
+      assert.equal(manualDay.background[3], 255);
+      assert.equal(await hint.isVisible(), false);
+      await setHostTheme(tab, 'cool');
+      await tab.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.deepEqual(await palette(theme), manualDay);
+      assert.deepEqual(await palette(main), manualDayMain);
+      assert.deepEqual(await hostColors(), coolHost);
       const darkRadio = theme.getByRole('radio', { name: '夜间', exact: true });
       await theme.getByText('夜间', { exact: true }).tap();
       assert(await darkRadio.isChecked());

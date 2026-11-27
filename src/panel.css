@@ -92,7 +92,18 @@ dialog.st-api-manager.popup[data-catalog-theme="dark"] {
 }
 @supports (background-color: color-mix(in srgb, black, white)) {
   dialog.st-api-manager.popup[data-catalog-follow-host="true"] {
-    --catalog-reading-surface: color-mix(in srgb, var(--catalog-palette-surface) 90%, var(--catalog-host-tint, var(--catalog-palette-surface)));
+    --catalog-reading-surface: var(--catalog-host-tint, var(--catalog-palette-surface));
+    --catalog-reading-ink: var(--catalog-host-ink, #3b352e);
+    --catalog-muted-ink: color-mix(in srgb, var(--catalog-reading-ink), var(--catalog-reading-surface) 15%);
+    --catalog-control-ink: var(--catalog-reading-ink);
+    --catalog-group-surface: color-mix(in srgb, var(--catalog-reading-surface), var(--catalog-reading-ink) 6%);
+    --catalog-card-surface: color-mix(in srgb, var(--catalog-reading-surface), var(--catalog-reading-ink) 3%);
+    --catalog-field-surface: color-mix(in srgb, var(--catalog-reading-surface), var(--catalog-reading-ink) 2%);
+    --catalog-control-surface: color-mix(in srgb, var(--catalog-reading-surface), var(--catalog-reading-ink) 10%);
+    --catalog-control-hover: color-mix(in srgb, var(--catalog-reading-surface), var(--catalog-reading-ink) 13%);
+    --catalog-control-selected: color-mix(in srgb, var(--catalog-reading-surface), var(--catalog-reading-ink) 16%);
+    --catalog-line: color-mix(in srgb, var(--catalog-reading-surface), var(--catalog-reading-ink) 22%);
+    --catalog-accent: var(--catalog-host-accent, var(--catalog-reading-ink));
     --catalog-panel-background: color-mix(in srgb, var(--catalog-reading-surface), transparent var(--catalog-panel-transparency, 0%));
   }
 }
@@ -572,6 +583,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
   min-width: 0; overflow: hidden; overflow-wrap: anywhere;
 }
+.st-api-manager .catalog-card-information { display: grid; gap: 2px; min-width: 0; }
 .st-api-manager .catalog-card-meta {
   display: flex; align-items: center; flex-wrap: wrap; gap: 3px 7px;
   min-width: 0; padding-inline: 2px; font-size: var(--st-orb-font-sm); line-height: 1.3;
@@ -594,15 +606,21 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .st-api-manager .catalog-config-card .catalog-card-site,
-.st-api-manager .catalog-card-notes { font-size: var(--st-orb-font-base); line-height: 1.35; }
+.st-api-manager .catalog-card-notes,
+.st-api-manager .catalog-card-original { font-size: var(--st-orb-font-base); line-height: 1.35; }
 .st-api-manager .catalog-config-card .catalog-card-site { font-weight: 500; }
-.st-api-manager .catalog-card-notes {
+.st-api-manager .catalog-card-notes,
+.st-api-manager .catalog-card-original {
   display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 1px 5px;
   margin: 0; padding-inline: 2px;
 }
-.st-api-manager .catalog-card-notes dt { color: var(--catalog-reading-ink); }
+.st-api-manager .catalog-card-notes dt,
+.st-api-manager .catalog-card-original dt { color: var(--catalog-reading-ink); }
 .st-api-manager .catalog-card-notes dd {
   min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.st-api-manager .catalog-card-original dd {
+  min-width: 0; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .st-api-manager .catalog-card-actions {
   display: flex; flex-wrap: nowrap; gap: 5px;
@@ -615,11 +633,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-card-actions button:focus-visible {
   outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px;
 }
-.st-api-manager .catalog-selection-model,
-.st-api-manager .catalog-details dd { overflow-wrap: anywhere; }
-.st-api-manager .catalog-details { display: grid; gap: 4px; margin: 0; }
-.st-api-manager .catalog-details dt { font-weight: 600; }
-.st-api-manager .catalog-details dd { margin: 0 0 8px; white-space: pre-wrap; }
+.st-api-manager .catalog-selection-model { overflow-wrap: anywhere; }
 @media (min-width: 800px) {
   .st-api-manager .catalog-config-card { padding-inline: 12px; }
   .st-api-manager .catalog-card-meta { column-gap: 10px; }
@@ -670,8 +684,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-card-expanded .catalog-card-site,
 .st-api-manager .catalog-card-expanded .catalog-card-alias,
 .st-api-manager .catalog-card-expanded .catalog-card-notes dd { white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }
-.st-api-manager .catalog-card-details { justify-self: start; font-size: var(--st-orb-font-sm); }
-.st-api-manager .catalog-card-details[hidden] { display: none; }
+.st-api-manager .catalog-card-expanded .catalog-card-alias-summary { display: none; }
 .st-api-manager .catalog-card-sort-mode .secretKeyManagerItemActions { display: none; }
 .st-api-manager .catalog-config-card > .catalog-sort-controls { border-top: 1px solid var(--st-orb-border-soft); padding-top: 6px; margin-top: 2px; }
 .st-api-manager .catalog-config-card .catalog-sort-handle { margin-inline-end: auto; }

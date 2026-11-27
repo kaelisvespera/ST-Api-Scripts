@@ -310,15 +310,6 @@ function mountCatalogPanel(host, storage, connection) {
     }
     return fields;
   }
-  function showRowDetails(row, { keyLabel, keyNote }) {
-    const pane = popup('配置详情', 'small');
-    pane.scroll.append(rowFields('catalog-details', [
-      ['模型 ID', row.model || '未选择模型'], ['配置组', row.site], ['密钥编号', keyLabel],
-      ['密钥备注', keyNote], ['模型备注', row.modelNote], ['原条目标题', row.name],
-    ]));
-    pane.footer.append(closeButton(pane));
-    pane.open();
-  }
   function focusRowAction(row, group, selector = '.catalog-card-edit') {
     const cards = [...main.scroll.querySelectorAll('.catalog-config-card')].filter(card =>
       card.dataset.entryId === row.id && card.getClientRects().length);
@@ -371,35 +362,46 @@ function mountCatalogPanel(host, storage, connection) {
     card.dataset.groupId = group?.id ?? '';
     const title = make('button', 'catalog-card-title');
     title.type = 'button';
-    const expansionKey = JSON.stringify([row.id, group?.id ?? null]);
-    const expanded = expandedRows.has(expansionKey);
-    card.classList.toggle('catalog-card-expanded', expanded);
-    title.setAttribute('aria-expanded', String(expanded));
     title.title = '展开或收起完整信息';
-    title.append(make('span', 'catalog-card-model', row.model || '未选择模型'), icon('angle-right'));
-    title.addEventListener('click', () => {
-      title.focus({ preventScroll: true });
-      const next = !expandedRows.has(expansionKey);
-      if (next) expandedRows.add(expansionKey); else expandedRows.delete(expansionKey);
-      card.classList.toggle('catalog-card-expanded', next);
-      title.setAttribute('aria-expanded', String(next));
-      details.hidden = !next;
-    });
+    const model = row.model || '未选择模型';
+    title.append(make('span', 'catalog-card-model', model), icon('angle-right'));
+
+    const information = make('div', 'catalog-card-information');
+    const { keyLabel, keyNote, alias } = presentation;
     const meta = rowMetadata(row, presentation, false);
     if (connection.activeRowId() === row.id) {
       card.classList.add('secretKeyManagerItem--applied');
       meta.append(make('span', 'active-badge-sm', '已应用'));
     }
-    card.append(title, meta);
-    const notes = rowFields('catalog-card-notes', [['密钥备注', presentation.keyNote], ['模型备注', row.modelNote]]);
-    if (notes.childElementCount) card.append(notes);
-    const details = button('完整详情', () => showRowDetails(row, presentation));
-    details.classList.add('catalog-card-details');
-    details.hidden = !expanded;
-    card.append(details, rowActions(row, group));
+    information.append(meta);
+    const notes = rowFields('catalog-card-notes', [['密钥备注', keyNote], ['模型备注', row.modelNote]]);
+    if (notes.childElementCount) information.append(notes);
+    const visibleFields = [model, row.site, keyLabel, keyNote, row.modelNote];
+    const originalTitle = row.name && row.name !== alias && !visibleFields.includes(row.name)
+      ? rowFields('catalog-card-original', [['原条目标题', row.name]]) : null;
+    if (originalTitle) information.append(originalTitle);
+    if (originalTitle || visibleFields.includes(alias)) {
+      meta.querySelector('.catalog-card-alias')?.classList.add('catalog-card-alias-summary');
+    }
+    card.append(title, information, rowActions(row, group));
+
+    const expansionKey = JSON.stringify([row.id, group?.id ?? null]);
+    const updateExpansion = expanded => {
+      card.classList.toggle('catalog-card-expanded', expanded);
+      title.setAttribute('aria-expanded', String(expanded));
+      if (originalTitle) originalTitle.hidden = !expanded;
+    };
+    updateExpansion(expandedRows.has(expansionKey));
+    title.addEventListener('click', () => {
+      title.focus({ preventScroll: true });
+      const next = !expandedRows.has(expansionKey);
+      if (next) expandedRows.add(expansionKey); else expandedRows.delete(expansionKey);
+      updateExpansion(next);
+    });
     card.classList.toggle('catalog-card-sort-mode', sortingGroup === groupKey(group));
     card.addEventListener('click', event => {
       if (sortingGroup === groupKey(group) || event.target.closest('button,input,a,select,textarea')
+        || (expandedRows.has(expansionKey) && information.contains(event.target))
         || host.getSelection()?.toString()) return;
       card.querySelector('.catalog-card-apply').click();
     });
@@ -555,8 +557,8 @@ function mountCatalogPanel(host, storage, connection) {
     const list = make('div', 'catalog-settings-list');
     const sections = [
       ['标签设置', '管理分组、颜色和图标', 'tags', tagSettings],
-      ['数据', '导入、导出、同步和入口', 'database', dataPanel],
       ['主题设置', '日夜模式与透明度', 'palette', () => theme.openSettings({ popup, make, button, closeButton })],
+      ['数据', '导入、导出、同步和入口', 'database', dataPanel],
     ];
     for (const [label, description, glyph, open] of sections) {
       const entry = make('button', 'menu_button interactable catalog-settings-entry');

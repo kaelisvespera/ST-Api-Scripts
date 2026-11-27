@@ -122,10 +122,13 @@ for (const [label, mode, query] of [['ST', 'st', ''], ['TT', 'tt', ''], ['TT ifr
         await assertDrawer(true, 'reopened with keyboard');
       }
       assert.equal(await tab.evaluate(() => window.fixtureDrawerWrites), 1, 'host drawer handler ignores plugin groups');
-      await button(last, 'argon-fixture-0').click();
-      await button(last, '完整详情').click();
-      await pane('配置详情').getByText('argon-fixture-0', { exact: true }).waitFor();
-      await button(pane('配置详情'), '关闭').click();
+      const cardTitle = button(last, 'argon-fixture-0');
+      await cardTitle.locator('i').click();
+      assert.equal(await cardTitle.getAttribute('aria-expanded'), 'true');
+      await cardTitle.locator('.catalog-card-model').waitFor();
+      assert.equal(await button(last, '完整详情').count(), 0);
+      assert.equal(await pane('配置详情').count(), 0);
+      assert.equal(await cardTitle.evaluate(element => document.activeElement === element), true);
       const preview = process.env.ST_API_UI_PREVIEW;
       if (preview) {
         fs.mkdirSync(preview, { recursive: true });

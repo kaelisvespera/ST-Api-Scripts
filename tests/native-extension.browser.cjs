@@ -474,7 +474,7 @@ for (const mode of ['st', 'tt']) {
     await expectText(card(a), '【按次】');
     await expectText(card(c), '手写的条目标题');
     await expectText(card(d), '[收藏]');
-    assert.equal(await panel.getByText('星港 新号', { exact: false }).count(), 0);
+    assert.equal(await panel.getByText('星港 新号', { exact: false }).filter({ visible: true }).count(), 0);
     for (const [index, row] of [a, b, c, d].entries()) await expectText(card(row), 'Key ' + (index + 1));
     assert.equal(await panel.getByText(/fixture-key-[a-d]/).count(), 0);
 
@@ -533,16 +533,26 @@ for (const mode of ['st', 'tt']) {
     assert.deepEqual(await card(a).locator('.catalog-card-notes dt').allTextContents(), ['密钥备注', '模型备注']);
     assert.deepEqual(await card(a).locator('.catalog-card-notes dd').allTextContents(), ['官key', modelNote]);
     assert.equal(await card(d).locator('.catalog-card-notes dd').textContent(), keyNote);
-    await title.tap();
-    const detailButton=exactButton(card(a), '完整详情');
-    await detailButton.click();
-    const details = dialog('配置详情');
-    await expectText(details, originalNames[0]);
-    await expectText(details, model);
-    await expectText(details, modelNote);
+    const originalTitle = card(a).locator('.catalog-card-original');
+    assert.equal(await originalTitle.isVisible(), false);
+    await title.locator('i').tap();
+    assert.equal(await title.getAttribute('aria-expanded'), 'true');
+    await expectText(originalTitle, originalNames[0]);
+    assert.equal(await card(a).locator('.catalog-card-alias').isVisible(), false);
+    await expectText(card(a), model);
+    await expectText(card(a), modelNote);
+    assert.equal(await exactButton(card(a), '完整详情').count(), 0);
+    assert.equal(await dialog('配置详情').count(), 0);
+    await originalTitle.locator('dd').click();
+    await assertConnection();
     await capture(tab, mode + '-legacy-actions-details-390');
-    await exactButton(details, '关闭').click();
-    assert.equal(await detailButton.evaluate(button => button === document.activeElement), true);
+    await title.press('Space');
+    assert.equal(await title.getAttribute('aria-expanded'), 'false');
+    assert.equal(await originalTitle.isVisible(), false);
+    assert.equal(await title.evaluate(button => button === document.activeElement), true);
+    await exactButton(card(c), model).press('Enter');
+    assert.equal(await card(c).locator('.catalog-card-original').count(), 0);
+    await expectText(card(c), originalNames[2]);
 
     const editAction = exactButton(card(a), '编辑');
     await editAction.press('Enter');

@@ -12,6 +12,21 @@ function createCatalogTheme(host, storage) {
   let renderSettings;
   let settingsStatus;
 
+  function luminance(rgb) {
+    const [red, green, blue] = rgb.map(channel => {
+      const srgb = channel / 255;
+      return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  }
+
+  const mix = (base, tint, weight) => base.map((channel, i) => Math.round(channel * (1 - weight) + tint[i] * weight));
+  const contrast = (first, second) => {
+    const a = luminance(first), b = luminance(second);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  const rgb = channels => 'rgb(' + channels.join(', ') + ')';
+
   function readColor(value) {
     if (!paint || !value) return;
     // An unsupported color leaves the last fill style in place.
@@ -26,37 +41,51 @@ function createCatalogTheme(host, storage) {
     paint.fillRect(0, 0, 1, 1);
     const [red, green, blue, alpha] = paint.getImageData(0, 0, 1, 1).data;
     if (alpha < 20) return;
-    const linear = channel => {
-      const srgb = channel / 255;
-      return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
-    };
-    return {
-      color: 'rgb(' + [red, green, blue].join(', ') + ')',
-      lightness: 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue),
-    };
+    return [red, green, blue];
+  }
+
+  function followPalette(mode, tint, ink, accent) {
+    const dark = mode === 'dark';
+    const base = dark ? [43, 45, 48] : [224, 226, 224];
+    const text = dark ? [221, 224, 225] : [51, 53, 50];
+    let surface = tint ? mix(base, tint, .84) : base;
+    let foreground = ink ? mix(text, ink, .55) : text;
+    // Check the least separated control fill and muted text as well as the shell.
+    const readable = () => contrast(foreground, mix(surface, foreground, .16)) >= 5 &&
+      contrast(mix(foreground, surface, .15), mix(surface, foreground, .13)) >= 4.5;
+    if (!readable()) foreground = text;
+    if (!readable()) surface = mix(surface, base, .68);
+    if (!readable()) surface = base;
+    const highlight = accent ? mix(accent, foreground, .25) : foreground;
+    const focusColor = contrast(highlight, mix(surface, foreground, .16)) >= 3 ? highlight : foreground;
+    return { tint: rgb(surface), ink: rgb(foreground), accent: rgb(focusColor) };
   }
 
   function appearance() {
     if (!preference.followHost) return { mode: preference.manual };
     const style = view.getComputedStyle(doc.body);
-    const tint = readColor(style.getPropertyValue('--SmartThemeBlurTintColor').trim());
-    const ink = readColor(style.getPropertyValue('--SmartThemeBodyColor').trim());
-    // Clear host tints take precedence. The text color gives a better signal
-    // when the host surface is transparent or somewhere in the middle.
-    const dark = tint && tint.lightness < 0.22 ? true
-      : tint && tint.lightness > 0.38 ? false
-      : ink ? ink.lightness > 0.38
+    const tint = readColor(style.getPropertyValue('--SmartThemeBlurTintColor').trim()) ?? readColor(style.backgroundColor);
+    const ink = readColor(style.getPropertyValue('--SmartThemeBodyColor').trim()) ?? readColor(style.color);
+    const accent = readColor(style.getPropertyValue('--SmartThemeQuoteColor').trim());
+    // Clear host tints give the color scheme; ink is a better signal for midtones.
+    const tone = tint ? luminance(tint) : .3;
+    const dark = tone < .22 ? true : tone > .38 ? false
+      : ink ? luminance(ink) > .38
       : style.colorScheme === 'dark' || (style.colorScheme !== 'light' && systemDark?.matches);
-    return { mode: dark ? 'dark' : 'light', tint: tint?.color };
+    const mode = dark ? 'dark' : 'light';
+    return { mode, ...followPalette(mode, tint, ink, accent) };
   }
 
-  function paintDialog(dialog, { mode, tint }) {
+  function paintDialog(dialog, { mode, tint, ink, accent }) {
     dialog.dataset.catalogTheme = mode;
     dialog.dataset.catalogFollowHost = String(preference.followHost);
     const transparency = preference.followHost ? preference.transparency : 0;
     dialog.style.setProperty('--catalog-panel-transparency', transparency + '%');
-    if (tint) dialog.style.setProperty('--catalog-host-tint', tint);
-    else dialog.style.removeProperty('--catalog-host-tint');
+    for (const [name, color] of Object.entries({ tint, ink, accent })) {
+      const token = '--catalog-host-' + name;
+      if (color) dialog.style.setProperty(token, color);
+      else dialog.style.removeProperty(token);
+    }
     // Host themes can use important rules for all popup backgrounds.
     dialog.style.setProperty('background-color', 'var(--catalog-panel-background)', 'important');
   }
@@ -64,7 +93,7 @@ function createCatalogTheme(host, storage) {
   function updateAppearance() {
     const current = appearance();
     for (const dialog of doc.querySelectorAll('dialog.st-api-manager[open]')) paintDialog(dialog, current);
-    renderSettings?.(current.mode);
+    renderSettings?.();
   }
 
   let refreshPending = false;
@@ -145,7 +174,7 @@ function createCatalogTheme(host, storage) {
     const percentage = make('output', 'catalog-theme-opacity-value');
     percentage.setAttribute('for', slider.id);
     percentage.setAttribute('aria-live', 'off');
-    const hint = make('p', 'catalog-theme-hint');
+    const hint = make('p', 'catalog-theme-hint', '正在跟随酒馆主题。透明度只作用于面板底色。');
     hint.id = 'catalog-opacity-hint';
     opacityHeader.append(sliderLabel, percentage);
     transparency.append(opacityHeader, slider, hint);
@@ -153,7 +182,7 @@ function createCatalogTheme(host, storage) {
     pane.scroll.append(controls);
     pane.footer.append(closeButton(pane));
 
-    const render = mode => {
+    const render = () => {
       follow.checked = preference.followHost;
       manual.hidden = preference.followHost;
       transparency.hidden = !preference.followHost;
@@ -164,7 +193,6 @@ function createCatalogTheme(host, storage) {
       const percent = amount + '%';
       percentage.value = percent;
       slider.setAttribute('aria-valuetext', percent);
-      hint.textContent = '当前为' + (mode === 'dark' ? '夜间' : '日间') + '外观。透明度只作用于面板底色。';
     };
     follow.addEventListener('change', () => {
       preference = { ...preference, followHost: follow.checked };
@@ -191,7 +219,7 @@ function createCatalogTheme(host, storage) {
     renderSettings = render;
     settingsStatus = pane.status;
     if (saveFailed) settingsStatus.textContent = saveError;
-    render(appearance().mode);
+    render();
     pane.open();
   }
 
