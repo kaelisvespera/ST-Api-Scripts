@@ -12,7 +12,7 @@ function mountCatalogFormFill(host, showPicker) {
     + '#api_key_custom, #api_key_openai, #api_key_deepseek, #api_key_makersuite, [inert], [aria-hidden="true"]';
   const scopeSelector = 'form, fieldset, dialog, [role="form"], [role="dialog"], .popup, .inline-drawer-content, '
     + '[data-extension], [data-extension-id], [data-extension-name], [data-plugin], [data-plugin-id], [data-plugin-name]';
-  const fieldLabels = { url: 'API 地址', key: 'API Key', includeBody: '附加参数', excludeBody: '排除参数' };
+  const fieldLabels = { url: 'API 地址', key: 'API Key', model: '模型名', includeBody: '附加参数', excludeBody: '排除参数' };
   const extraKinds = ['includeBody', 'excludeBody'];
   const watchedRoots = new WeakSet();
   let current;
@@ -35,6 +35,11 @@ function mountCatalogFormFill(host, showPicker) {
     return false;
   }
 
+  function metadataWords(value) {
+    return value.slice(0, 200).replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  }
+
   function fieldKind(input) {
     if (!(input instanceof Input) || input.ownerDocument !== doc || !input.isConnected ||
       !['text', 'url', 'password'].includes(input.type) || input.matches(':disabled') || input.readOnly ||
@@ -49,9 +54,7 @@ function mountCatalogFormFill(host, showPicker) {
     const label = [...input.labels ?? []].map(element => element.textContent);
     const hints = [input.getAttribute('aria-label'), ...labelledBy, ...label,
       input.getAttribute('placeholder'), input.name, input.id]
-      .filter(Boolean).map(text => text.slice(0, 200)
-        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-        .toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim());
+      .filter(Boolean).map(metadataWords);
     const autocomplete = input.autocomplete.toLowerCase().split(/\s+/);
     if (autocomplete.some(value => ['username', 'current-password', 'one-time-code'].includes(value)) ||
       hints.some(text => /\b(?:login|sign in)\b|登录(?:密码|口令)/.test(text))) return undefined;
@@ -104,7 +107,7 @@ function mountCatalogFormFill(host, showPicker) {
       realm.getComputedStyle(field).visibility === 'visible';
   }
 
-  function extraCaption(node, field, scope) {
+  function adjacentCaption(node, field, scope) {
     if (!node || scopeOf(node) !== scope || !node.matches('label, span, div, p, small, strong, legend') ||
       (node.matches('label[for]') && node.control !== field) ||
       node.querySelector('input, textarea, select, button')) return '';
@@ -112,7 +115,24 @@ function mountCatalogFormFill(host, showPicker) {
     return caption.length <= 60 ? caption : '';
   }
 
-  function extraLabelText(label) {
+  function scopedModel(scope, form, fields) {
+    if (!scope || fields.length !== 2) return undefined;
+    const candidates = [...scope.querySelectorAll('input')].filter(field => {
+      if (field.type !== 'text' || field.matches(':disabled') || field.readOnly || insideExcluded(field) ||
+        scopeOf(field) !== scope || field.form !== form || fields.some(({ input }) => input === field) ||
+        !visible(field)) return false;
+
+      const captions = [accessibleLabel(field, controlLabelText), ...[...field.labels ?? []].map(controlLabelText),
+        adjacentCaption(field.previousElementSibling, field, scope),
+        adjacentCaption(field.parentElement?.previousElementSibling, field, scope),
+        field.name, field.id, field.placeholder];
+      return captions.filter(Boolean).map(metadataWords).some(label =>
+        /^(?:(?:(?:api editor|api|ai) )?model(?: id| name)?|模型(?: ?id|名称|名)?)$/u.test(label));
+    });
+    return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
+  function controlLabelText(label) {
     // An implicit label may wrap a textarea, including its old default text.
     const walker = doc.createTreeWalker(label, realm.NodeFilter.SHOW_TEXT);
     const fragments = [];
@@ -126,8 +146,8 @@ function mountCatalogFormFill(host, showPicker) {
     if (!(field instanceof TextArea) || field.ownerDocument !== doc || !field.isConnected ||
       field.matches(':disabled') || field.readOnly || insideExcluded(field)) return undefined;
     const adjacent = [field.previousElementSibling, field.parentElement?.previousElementSibling]
-      .map(node => extraCaption(node, field, scope));
-    const own = [accessibleLabel(field, extraLabelText), ...[...field.labels ?? []].map(extraLabelText)];
+      .map(node => adjacentCaption(node, field, scope));
+    const own = [accessibleLabel(field, controlLabelText), ...[...field.labels ?? []].map(controlLabelText)];
     const captions = [...own, ...adjacent].filter(Boolean).map(label => label.toLowerCase()
       .replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')'));
     const types = [
@@ -176,7 +196,7 @@ function mountCatalogFormFill(host, showPicker) {
     return result;
   }
 
-  async function fill(input, scope, parent, form, fields, extraTargets, row) {
+  async function fill(input, scope, parent, form, fields, modelTarget, extraTargets, row) {
     const sameTarget = field => field.isConnected && scopeOf(field) === scope &&
       field.form === form && scopeParent(input, scope) === parent;
     const verifyCredentialTargets = () => {
@@ -218,6 +238,12 @@ function mountCatalogFormFill(host, showPicker) {
         }
         assignments.push({ input: original.input, kind, value: values[kind], setter: setTextAreaValue });
       }
+    }
+    if (modelTarget && row.model.trim()) {
+      if (scopedModel(scope, form, fields) !== modelTarget || !sameTarget(modelTarget)) {
+        throw new Error('插件模型输入框已变化，请关闭后重新选择。');
+      }
+      assignments.push({ input: modelTarget, kind: 'model', value: row.model, setter: setValue });
     }
     for (const assignment of assignments) {
       if (assignment.input.maxLength >= 0 && assignment.value.length > assignment.input.maxLength) {
@@ -289,12 +315,14 @@ function mountCatalogFormFill(host, showPicker) {
         return;
       }
       const scopeLabel = scopeTitle(scope).slice(0, 80);
+      const modelTarget = scopedModel(scope, form, fields);
       const extraTargets = scopedExtras(scope, form, fields);
       showPicker({
         fields: fields.map(({ kind }) => ({ kind, label: fieldLabels[kind] })),
+        modelField: Boolean(modelTarget),
         extraFields: extraKinds.filter(kind => extraTargets.has(kind)),
         scopeLabel,
-        fill: row => fill(input, scope, parent, form, fields, extraTargets, row),
+        fill: row => fill(input, scope, parent, form, fields, modelTarget, extraTargets, row),
       });
     });
     anchor.after(button);

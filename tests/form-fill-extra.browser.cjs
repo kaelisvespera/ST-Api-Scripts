@@ -49,7 +49,8 @@ async function prepare({ tab, open, stores, origin }, style, extra) {
     wrapper.innerHTML = '<section role="dialog" aria-label="新增 API"><form class="' +
       (style === 'two-more' ? 'api-editor-form' : 'fixture-form') + '">' +
       '<label>API 地址<input id="fixture-url" type="url" value="https://previous.invalid/v1"></label>' +
-      '<label>API Key<input id="fixture-key" type="password" value="fixture-old-key"></label>' + advanced +
+      '<label>API Key<input id="fixture-key" type="password" value="fixture-old-key"></label>' +
+      (style === 'yaml' ? '<div><span>模型 ID</span><input id="fixture-model" value="old model"></div>' : '') + advanced +
       '<label>请求头<textarea id="fixture-header">keep headers</textarea></label>' +
       '<button type="button">保存</button></form></section>';
     const form = wrapper.querySelector('form');
@@ -58,6 +59,7 @@ async function prepare({ tab, open, stores, origin }, style, extra) {
       window.advancedEvents.push({
         id: e.target.id, event,
         url: wrapper.querySelector('#fixture-url').value,
+        model: wrapper.querySelector('#fixture-model')?.value,
         body: wrapper.querySelector('#api-editor-additional').value,
         exclude: wrapper.querySelector('#api-editor-exclude').value,
       });
@@ -86,6 +88,7 @@ for (const [mode, style] of [['st', 'seven-days'], ['tt', 'two-more'], ['tt', 'y
     if (style === 'yaml') {
       assert.equal(body, yamlBody);
       assert.equal(exclude, yamlExclude);
+      assert.equal(await plugin.locator('#fixture-model').inputValue(), row.model);
       assert.equal(await plugin.locator('#fixture-unrelated').inputValue(), 'keep prompt');
     } else {
       assert.deepEqual(JSON.parse(body), expectedBody);
@@ -94,7 +97,8 @@ for (const [mode, style] of [['st', 'seven-days'], ['tt', 'two-more'], ['tt', 'y
     assert.equal(await plugin.locator('#fixture-key').inputValue(), row.key);
     assert.equal(await plugin.locator('#fixture-header').inputValue(), 'keep headers');
     const events = await tab.evaluate(() => window.advancedEvents);
-    assert.equal(events.length, 8);
+    assert.equal(events.length, style === 'yaml' ? 10 : 8);
+    if (style === 'yaml') assert.ok(events.every(event => event.model === row.model));
     assert.ok(events.every(event => event.url === row.url && event.body === body && event.exclude === exclude));
     assert.ok(events.some(event => event.id === 'api-editor-additional' && event.event === 'input'));
     assert.ok(await plugin.locator(style === 'two-more' ? '.api-editor-advanced-body[hidden]' : 'details:not([open])').count());

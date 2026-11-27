@@ -18,7 +18,7 @@ async function openFixture({ tab, open, stores, origin }, options = {}) {
   }) } });
   await open(options.iframe ? '?iframe=1' : '');
   await button(dialog(tab, 'API 管理器'), '关闭').click();
-  await tab.evaluate(({ ambiguous, shadow }) => {
+  await tab.evaluate(({ ambiguous, ambiguousModel, shadow }) => {
     const plugin = document.createElement('dialog');
     plugin.id = 'fixture-plugin';
     plugin.setAttribute('aria-label', '合成插件设置');
@@ -31,6 +31,8 @@ async function openFixture({ tab, open, stores, origin }, options = {}) {
       '<label>API 地址 <input name="apiUrl" type="url" value="https://previous.invalid/v1"></label>' +
       '<label>API Key <input name="apiKey" type="password" value="fixture-old"></label>' +
       (ambiguous ? '<label>备用 API Key <input name="backupApiKey" value="fixture-backup"></label>' : '') +
+      '<label>模型 ID <input name="apiModel" type="text" value="previous-model"></label>' +
+      (ambiguousModel ? '<label>模型名称 <input name="secondModel" type="text" value="second-model"></label>' : '') +
       '<button type="submit">保存插件</button></form>';
     document.body.append(plugin);
     const form = root.querySelector('form');
@@ -38,10 +40,11 @@ async function openFixture({ tab, open, stores, origin }, options = {}) {
     window.fillEvents = [];
     form.addEventListener('submit', event => { event.preventDefault(); window.pluginSaves++; });
     for (const type of ['input', 'change']) form.addEventListener(type, event => {
-      window.fillEvents.push([event.target.name, type, form.elements.apiUrl.value, form.elements.apiKey.value]);
+      window.fillEvents.push([event.target.name, type,
+        form.elements.apiUrl.value, form.elements.apiKey.value, form.elements.apiModel.value]);
     });
     plugin.showModal();
-  }, { ambiguous: !!options.ambiguous, shadow: !!options.shadow });
+  }, { ambiguous: !!options.ambiguous, ambiguousModel: !!options.ambiguousModel, shadow: !!options.shadow });
   return selected;
 }
 
@@ -67,14 +70,62 @@ for (const [mode, options] of [['st', {}], ['tt', { shadow: true }], ['tt', { if
       await picker.waitFor({ state: 'hidden' });
       assert.equal(await url.inputValue(), selected.url);
       assert.equal(await key.inputValue(), selected.key);
+      assert.equal(await plugin.locator('input[name="apiModel"]').inputValue(), selected.model);
       assert.equal(await tab.evaluate(() => window.pluginSaves), 0);
       const events = await tab.evaluate(() => window.fillEvents);
-      assert.deepEqual(events.map(([name, type]) => name + ':' + type).sort(),
-        ['apiKey:change', 'apiKey:input', 'apiUrl:change', 'apiUrl:input']);
-      assert.ok(events.every(([, , address, secret]) => address === selected.url && secret === selected.key));
+      assert.deepEqual(events.map(([name, type]) => name + ':' + type),
+        ['apiUrl:input', 'apiUrl:change', 'apiKey:input', 'apiKey:change', 'apiModel:input', 'apiModel:change']);
+      assert.ok(events.every(([, , address, secret, model]) =>
+        address === selected.url && secret === selected.key && model === selected.model));
       await assertConnection();
     }, { hasTouch: true }));
 }
+
+for (const [name, options] of [
+  ['ambiguous model controls', { ambiguousModel: true }],
+  ['an empty directory model', { row: { model: '' } }],
+]) test(name + ' preserves the plugin model draft while filling URL and Key', { timeout: 30000 }, () =>
+  withBrowser('st', async fixture => {
+    const { tab, assertConnection } = fixture;
+    const selected = await openFixture(fixture, options);
+    const plugin = tab.locator('#fixture-plugin');
+    const url = plugin.locator('input[name="apiUrl"]');
+    await url.click();
+    await button(tab, '填入 API').click();
+    const picker = dialog(tab, '填入插件 API');
+    await button(picker, /填入.*示例站点/).click();
+    await picker.waitFor({ state: 'hidden' });
+    assert.equal(await url.inputValue(), selected.url);
+    assert.equal(await plugin.locator('input[name="apiKey"]').inputValue(), selected.key);
+    assert.equal(await plugin.locator('input[name="apiModel"]').inputValue(), 'previous-model');
+    if (options.ambiguousModel) {
+      assert.equal(await plugin.locator('input[name="secondModel"]').inputValue(), 'second-model');
+    }
+    const events = await tab.evaluate(() => window.fillEvents);
+    assert.deepEqual(events.map(([field, type]) => field + ':' + type),
+      ['apiUrl:input', 'apiUrl:change', 'apiKey:input', 'apiKey:change']);
+    await assertConnection();
+  }));
+
+test('replacing the model input invalidates the picker before it writes any fields', { timeout: 30000 }, () =>
+  withBrowser('st', async fixture => {
+    const { tab, assertConnection } = fixture;
+    await openFixture(fixture);
+    const plugin = tab.locator('#fixture-plugin');
+    const url = plugin.locator('input[name="apiUrl"]');
+    const model = plugin.locator('input[name="apiModel"]');
+    await url.click();
+    await button(tab, '填入 API').click();
+    const picker = dialog(tab, '填入插件 API');
+    await model.evaluate(field => field.replaceWith(field.cloneNode()));
+    await button(picker, /填入.*示例站点/).click();
+    await picker.getByText(/模型输入框已变化/).waitFor();
+    assert.equal(await url.inputValue(), 'https://previous.invalid/v1');
+    assert.equal(await plugin.locator('input[name="apiKey"]').inputValue(), 'fixture-old');
+    assert.equal(await model.inputValue(), 'previous-model');
+    assert.deepEqual(await tab.evaluate(() => window.fillEvents), []);
+    await assertConnection();
+  }));
 
 test('ambiguous pairs are rejected, and a replaced field cannot use an old picker', { timeout: 30000 }, () =>
   withBrowser('st', async fixture => {
@@ -154,17 +205,26 @@ test('a URL with embedded credentials is rejected before either field changes', 
 const shadowForms = [
   ['st', '千千结', { url: 'URL', key: 'Key', placeholder: '输入 API Key' }],
   ['tt', '千千结', { url: 'URL', key: 'Key', placeholder: '输入 API Key' }],
-  ['tt', '七日历', { url: 'URL', key: 'Key', placeholder: '已保存，留空保持不变', ids: 'sp-api-editor' }],
+  ['tt', '七日历', { url: 'URL', key: 'Key', placeholder: '已保存，留空保持不变', ids: 'sp-api-editor', modelPlaceholder: '默认模型', fetchModel: true }],
   ['tt', '百面相', { url: 'URL', key: 'Key', placeholder: '已保存，留空保持不变', accessible: true }],
   ['tt', '两三事', { url: '接口地址', key: '密钥', placeholder: '已保存，留空保持不变', ids: 'api-editor' }],
 ];
 
-for (const [mode, name, layout] of shadowForms) test(mode + ': ' + name + ' shadow dialog fills one URL and Key pair', {
+for (const [mode, name, layout] of shadowForms) test(mode + ': ' + name + ' shadow dialog fills URL, Key and model ID', {
   timeout: 30000,
-}, () => withBrowser(mode, async ({ tab, open, origin, assertConnection }) => {
+}, () => withBrowser(mode, async ({ tab, open, origin, assertConnection, stores }) => {
+  const selected = {
+    id: 'shadow-fill', name: '合成连接', source: 'custom', site: '合成站点', groupIds: [],
+    url: origin + '/compatible/v1', key: 'fixture-shadow-key', model: 'provider/model-id-001',
+  };
+  const catalog = { format: 'st-api-manager-catalog', version: 2, entries: [selected], groups: [] };
+  stores.set('one', { version: 1, values: { st_api_manager_catalog_v2: JSON.stringify({
+    catalog, sync: { revision: null, pending: false },
+  }) } });
   await open();
   await button(dialog(tab, 'API 管理器'), '关闭').click();
-  await tab.evaluate(({ url, key, placeholder, accessible, ids }) => {
+  const modelPlaceholder = layout.modelPlaceholder ?? '模型名称';
+  await tab.evaluate(({ url, key, placeholder, accessible, ids, modelPlaceholder, fetchModel }) => {
     const host = document.createElement('div');
     host.id = 'fixture-custom-shadow';
     document.body.append(host);
@@ -177,10 +237,17 @@ for (const [mode, name, layout] of shadowForms) test(mode + ': ' + name + ' shad
       '<label><span>' + key + '</span><input type="password" placeholder="' + placeholder + '"' +
       (accessible ? ' aria-label="API Key（留空保留已保存 Key）" autocomplete="new-password"' : '') +
       (ids ? ' id="' + ids + '-key"' : '') + '></label>' +
-      '<label><span>模型</span><input type="text" placeholder="模型名称"></label>' +
+      '<label><span>模型</span><input type="text" placeholder="' + modelPlaceholder + '" value="previous-model"' +
+      (ids ? ' id="' + ids + '-model"' : '') + '>' +
+      (fetchModel ? '<button type="button">拉取模型</button>' : '') + '</label>' +
       '<button type="button">保存</button></form></section>';
-    host.shadowRoot.querySelector('button').focus();
-  }, layout);
+    const root = host.shadowRoot;
+    window.shadowModelEvents = [];
+    const model = root.querySelector('input[placeholder="' + modelPlaceholder + '"]');
+    for (const type of ['input', 'change']) model.addEventListener(type, event =>
+      window.shadowModelEvents.push([event.type, event.target.value]));
+    root.querySelector('form > button').focus();
+  }, { ...layout, modelPlaceholder });
   const custom = tab.locator('#fixture-custom-shadow');
   const url = custom.getByPlaceholder('https://example.invalid/v1');
   const key = custom.getByPlaceholder(layout.placeholder);
@@ -197,7 +264,10 @@ for (const [mode, name, layout] of shadowForms) test(mode + ': ' + name + ' shad
   const pick = button(picker, /^填入 /).first();
   await pick.tap();
   await picker.waitFor({ state: 'hidden' });
-  assert.ok((await url.inputValue()).startsWith(origin));
-  assert.match(await key.inputValue(), /^fixture-key-/);
+  assert.equal(await url.inputValue(), selected.url);
+  assert.equal(await key.inputValue(), selected.key);
+  assert.equal(await custom.getByPlaceholder(modelPlaceholder).inputValue(), selected.model);
+  assert.deepEqual(await tab.evaluate(() => window.shadowModelEvents),
+    [['input', selected.model], ['change', selected.model]]);
   await assertConnection();
 }, { hasTouch: true }));
