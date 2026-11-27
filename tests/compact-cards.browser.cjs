@@ -2,14 +2,20 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { withBrowser } = require('./browser-fixture.cjs');
 for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting without applying and restore focus', {timeout:60000}, () => withBrowser(mode, async ({tab,open,assertConnection,stores,origin}) => {
+  const geometryModel = 'fixture/model-4.6 【次】';
   const catalog = {
     format: 'st-api-manager-catalog', version: 2,
     groups: [{ id: 'a', name: '测试组', color: '#3578ab' }],
     keyNotes: [{ id: 'short', note: '薯条' }, { id: 'multiple', note: '第一行\n第二行' }],
-    entries: [1, 2, 3].map(i => ({
-      id: 'row' + i, name: 'model' + i, model: 'model' + i, site: '合成站点', modelNote: '0.06',
-      source: 'custom', url: origin + '/provider/v1', key: 'fixture-key-' + i, groupIds: ['a'],
-      ...(i === 1 ? { credentialId: 'short' } : i === 2 ? { credentialId: 'multiple' } : {}),
+    entries: [
+      ['[合成站点] model1', 'model1'],
+      ['model2', 'model2'],
+      [geometryModel, geometryModel],
+      ['[合成站点]   model4', 'model4'],
+    ].map(([name, model], index) => ({
+      id: 'row' + (index + 1), name, model, site: '合成站点', modelNote: '0.06',
+      source: 'custom', url: origin + '/provider/v1', key: 'fixture-key-' + (index + 1), groupIds: ['a'],
+      ...(index === 0 ? { credentialId: 'short' } : index === 1 ? { credentialId: 'multiple' } : {}),
     })),
   };
   stores.set('one',{version:1,values:{st_api_manager_catalog_v2:JSON.stringify({catalog,sync:{revision:null,pending:false}})}});
@@ -19,7 +25,21 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
   assert.equal(await card.locator('.catalog-sort-controls').count(),0);
   const note = card.locator('.catalog-card-notes dd').first();
   assert.equal(await note.textContent(), '薯条');
-  assert.equal(await card.getByRole('button', { name: 'model1', exact: true }).count(), 0);
+  const geometryCard = drawer.locator('[data-entry-id="row3"]');
+  await tab.addStyleTag({ content: '[data-entry-id="row3"] .catalog-card-model { font: 600 17px/1 Arial, sans-serif; }' });
+  await tab.setViewportSize({ width: 389, height: 844 });
+  await tab.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const titleSize = await geometryCard.locator('.catalog-card-model').evaluate(node => ({
+    horizontal: node.scrollWidth - node.clientWidth, vertical: node.scrollHeight - node.clientHeight,
+  }));
+  assert.equal(titleSize.horizontal, 0, 'the mixed-script title fits on one line');
+  assert.ok(titleSize.vertical > 0, 'the compact font overhangs that single line vertically');
+  const visibleArrow = async id => drawer.locator('[data-entry-id="' + id + '"] .catalog-card-disclosure').isVisible();
+  assert.deepEqual({
+    generatedTitle: await visibleArrow('row1'),
+    singleLineFontOverhang: await visibleArrow('row3'),
+    generatedTitleWithExtraSpacing: await visibleArrow('row4'),
+  }, { generatedTitle: false, singleLineFontOverhang: false, generatedTitleWithExtraSpacing: false });
   await card.locator('.catalog-card-model').click();
   await assertConnection();
   await drawer.getByRole('button',{name:'排序',exact:true}).click();

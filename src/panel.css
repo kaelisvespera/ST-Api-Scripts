@@ -584,8 +584,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 }
 .st-api-manager .catalog-card-disclosure > i { opacity: .65; }
 .st-api-manager .catalog-card-model {
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
-  min-width: 0; overflow: hidden; overflow-wrap: anywhere;
+  min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .st-api-manager .catalog-card-information { display: grid; gap: 2px; min-width: 0; }
 .st-api-manager .catalog-card-meta {
@@ -683,7 +682,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-key-label, .st-api-manager .active-badge-sm { flex-shrink: 0; }
 .st-api-manager .catalog-card-actions > .menu_button_icon { flex: 0 1 36px; min-width: 28px; min-height: 34px; padding: 4px; }
 .st-api-manager .catalog-card-actions > button:last-child { margin-inline-start: auto; }
-.st-api-manager .catalog-card-expanded .catalog-card-model { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.st-api-manager .catalog-card-expanded .catalog-card-model { white-space: pre-wrap; overflow-wrap: anywhere; }
 .st-api-manager .catalog-card-expanded .catalog-card-disclosure > i { transform: rotate(90deg); }
 .st-api-manager .catalog-card-expanded .catalog-card-site,
 .st-api-manager .catalog-card-expanded .catalog-card-alias,

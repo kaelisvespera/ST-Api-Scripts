@@ -396,7 +396,9 @@ function mountCatalogPanel(host, storage, connection) {
     const notes = rowFields('catalog-card-notes', [['密钥备注', keyNote], ['模型备注', row.modelNote]]);
     if (notes.childElementCount) information.append(notes);
     const visibleFields = [model, row.site, keyLabel, keyNote, row.modelNote];
-    const originalTitle = row.name && row.name !== alias && !visibleFields.includes(row.name)
+    // The current site and model already show both parts of a generated title.
+    const repeatsSiteAndModel = row.name?.replace(/[ \t]+/g, ' ') === rowTitle(row).replace(/[ \t]+/g, ' ');
+    const originalTitle = row.name && !repeatsSiteAndModel && row.name !== alias && !visibleFields.includes(row.name)
       ? rowFields('catalog-card-original', [['原条目标题', row.name]]) : null;
     if (originalTitle) information.append(originalTitle);
     if (originalTitle || visibleFields.includes(alias)) {
@@ -411,8 +413,9 @@ function mountCatalogPanel(host, storage, connection) {
     const checkDisclosure = () => {
       if (!main.dialog.open || !card.closest('details')?.open) return;
       const expanded = expandedRows.has(expansionKey);
-      const canExpand = expanded || Boolean(originalTitle) || hasLineBreak || previewFields.some(field =>
-        field.scrollWidth > field.clientWidth || field.scrollHeight > field.clientHeight);
+      // Single-line text can extend past the line box vertically without hiding any characters.
+      const canExpand = expanded || Boolean(originalTitle) || hasLineBreak
+        || previewFields.some(field => field.scrollWidth > field.clientWidth);
       if (disclosure.hidden === !canExpand) return;
       const restoreFocus = !canExpand && doc.activeElement === disclosure;
       disclosure.hidden = !canExpand;
