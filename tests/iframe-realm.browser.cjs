@@ -13,12 +13,12 @@ test('complete compatibility bundle manages entries from a proxied TT helper ifr
   await editor.getByLabel('模型', { exact: true }).fill('frame-edited-model');
   await editor.getByRole('button', { name: '保存', exact: true }).click();
   await editor.waitFor({ state: 'hidden' });
-  await panel.getByRole('button', { name: 'frame-edited-model', exact: true }).waitFor();
+  await panel.locator('.catalog-card-model').filter({ hasText: /^frame-edited-model$/ }).waitFor();
   assert.deepEqual(models.map(call => call.authorization), ['Bearer fixture-key-b']);
   assert.deepEqual(JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog.entries.map(row => row.model),
     ['same-model', 'frame-edited-model']);
   await assertConnection();
   await open('?iframe=1');
-  await panel.getByRole('button', { name: 'frame-edited-model', exact: true }).waitFor();
+  await panel.locator('.catalog-card-model').filter({ hasText: /^frame-edited-model$/ }).waitFor();
   await assertConnection();
 }));

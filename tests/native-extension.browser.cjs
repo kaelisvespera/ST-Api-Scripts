@@ -530,6 +530,7 @@ for (const mode of ['st', 'tt']) {
     }
     await tab.setViewportSize({ width: 390, height: 844 });
     const title = exactButton(card(a), model);
+    await title.waitFor();
     assert.deepEqual(await card(a).locator('.catalog-card-notes dt').allTextContents(), ['密钥备注', '模型备注']);
     assert.deepEqual(await card(a).locator('.catalog-card-notes dd').allTextContents(), ['官key', modelNote]);
     assert.equal(await card(d).locator('.catalog-card-notes dd').textContent(), keyNote);

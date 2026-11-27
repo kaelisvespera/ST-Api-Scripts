@@ -570,15 +570,19 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-items: stretch; padding: 6px 8px;
 }
 .st-api-manager .catalog-card-title {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  min-width: 0; min-height: 32px; padding: 3px 2px; margin: 0;
-  border: 0; background: transparent; color: inherit;
-  font: inherit; font-weight: 600; line-height: 1.25; text-align: start; cursor: pointer;
+  display: grid; grid-template-columns: minmax(0, 1fr) 1.4em; align-items: center; gap: 4px;
+  min-width: 0; min-height: 32px; padding-inline: 2px;
+  font-weight: 600; line-height: 1.25; text-align: start;
 }
-.st-api-manager .catalog-card-title:focus-visible {
+.st-api-manager .catalog-card-title:has(.catalog-card-disclosure:not([hidden])) { cursor: pointer; }
+.st-api-manager .catalog-card-disclosure {
+  display: grid; place-items: center; min-width: 0; min-height: 32px; padding: 0;
+  border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+.st-api-manager :is(.catalog-card-title, .catalog-card-disclosure):focus-visible {
   outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: -2px; border-radius: 4px;
 }
-.st-api-manager .catalog-card-title > i { flex: 0 0 auto; opacity: .65; }
+.st-api-manager .catalog-card-disclosure > i { opacity: .65; }
 .st-api-manager .catalog-card-model {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1;
   min-width: 0; overflow: hidden; overflow-wrap: anywhere;
@@ -675,12 +679,12 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-config-card .catalog-card-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
 .st-api-manager .catalog-config-card .catalog-card-site { flex: 0 1 auto; }
 .st-api-manager .catalog-config-card .catalog-card-alias { grid-column: 1 / -1; }
+.st-api-manager .catalog-config-card .active-badge-sm { grid-area: 1 / 3; align-self: start; }
 .st-api-manager .catalog-key-label, .st-api-manager .active-badge-sm { flex-shrink: 0; }
 .st-api-manager .catalog-card-actions > .menu_button_icon { flex: 0 1 36px; min-width: 28px; min-height: 34px; padding: 4px; }
 .st-api-manager .catalog-card-actions > button:last-child { margin-inline-start: auto; }
-.st-api-manager .catalog-card-expanded .catalog-card-model { display: block; overflow-wrap: anywhere; }
-.st-api-manager .catalog-card-expanded .catalog-card-title > i { transform: rotate(90deg); }
-.st-api-manager .catalog-card-expanded .catalog-card-meta { display: flex; flex-wrap: wrap; }
+.st-api-manager .catalog-card-expanded .catalog-card-model { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.st-api-manager .catalog-card-expanded .catalog-card-disclosure > i { transform: rotate(90deg); }
 .st-api-manager .catalog-card-expanded .catalog-card-site,
 .st-api-manager .catalog-card-expanded .catalog-card-alias,
 .st-api-manager .catalog-card-expanded .catalog-card-notes dd { white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; }

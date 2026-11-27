@@ -110,6 +110,17 @@ function mountCatalogPanel(host, storage, connection) {
   const unassigned = Symbol('uncategorized');
   let sortingGroup;
   const expandedRows = new Set();
+  const disclosureChecks = new Map();
+  const disclosureResize = new host.ResizeObserver(entries => {
+    for (const { target } of entries) disclosureChecks.get(target)?.();
+  });
+  function resetDisclosures() {
+    disclosureResize.disconnect();
+    disclosureChecks.clear();
+  }
+  doc.fonts?.addEventListener('loadingdone', () => {
+    for (const check of disclosureChecks.values()) check();
+  });
   const groupKey = group => group?.id ?? unassigned;
   const focusSortToggle = id => [...main.scroll.querySelectorAll('.catalog-sort-toggle')]
     .find(control => control.dataset.groupId === (id === unassigned ? '' : id))?.focus();
@@ -121,7 +132,11 @@ function mountCatalogPanel(host, storage, connection) {
     refresh();
     focusSortToggle(previous);
   });
-  main.dialog.addEventListener('close', () => { sortingGroup = undefined; expandedRows.clear(); });
+  main.dialog.addEventListener('close', () => {
+    sortingGroup = undefined;
+    expandedRows.clear();
+    if (!main.dialog.open) resetDisclosures();
+  });
   const collapsed = new Set(storage.collapsedGroups.map(id => id === null ? unassigned : id));
   const toolbar = make('div', 'api-manager-toolbar');
   const managerButton = button('API 管理', manager, 'layer-group');
@@ -360,11 +375,15 @@ function mountCatalogPanel(host, storage, connection) {
     const card = make('div', 'secretKeyManagerItem catalog-config-card');
     card.dataset.entryId = row.id;
     card.dataset.groupId = group?.id ?? '';
-    const title = make('button', 'catalog-card-title');
-    title.type = 'button';
-    title.title = '展开或收起完整信息';
+    const title = make('div', 'catalog-card-title');
     const model = row.model || '未选择模型';
-    title.append(make('span', 'catalog-card-model', model), icon('angle-right'));
+    const modelText = make('span', 'catalog-card-model', model);
+    const disclosure = make('button', 'catalog-card-disclosure');
+    disclosure.type = 'button';
+    disclosure.title = '展开或收起完整信息';
+    disclosure.setAttribute('aria-label', model);
+    disclosure.append(icon('angle-right'));
+    title.append(modelText, disclosure);
 
     const information = make('div', 'catalog-card-information');
     const { keyLabel, keyNote, alias } = presentation;
@@ -386,21 +405,44 @@ function mountCatalogPanel(host, storage, connection) {
     card.append(title, information, rowActions(row, group));
 
     const expansionKey = JSON.stringify([row.id, group?.id ?? null]);
+    const previewFields = [modelText, ...meta.querySelectorAll('.catalog-card-site, .catalog-card-alias'),
+      ...notes.querySelectorAll('dd')];
+    const hasLineBreak = previewFields.some(field => /[\r\n]/.test(field.textContent.trim()));
+    const checkDisclosure = () => {
+      if (!main.dialog.open || !card.closest('details')?.open) return;
+      const expanded = expandedRows.has(expansionKey);
+      const canExpand = expanded || Boolean(originalTitle) || hasLineBreak || previewFields.some(field =>
+        field.scrollWidth > field.clientWidth || field.scrollHeight > field.clientHeight);
+      if (disclosure.hidden === !canExpand) return;
+      const restoreFocus = !canExpand && doc.activeElement === disclosure;
+      disclosure.hidden = !canExpand;
+      if (restoreFocus) {
+        title.tabIndex = -1;
+        title.focus({ preventScroll: true });
+      }
+    };
     const updateExpansion = expanded => {
       card.classList.toggle('catalog-card-expanded', expanded);
-      title.setAttribute('aria-expanded', String(expanded));
+      disclosure.setAttribute('aria-expanded', String(expanded));
       if (originalTitle) originalTitle.hidden = !expanded;
     };
-    updateExpansion(expandedRows.has(expansionKey));
-    title.addEventListener('click', () => {
-      title.focus({ preventScroll: true });
+    const expanded = expandedRows.has(expansionKey);
+    disclosure.hidden = !expanded && !originalTitle && !hasLineBreak;
+    updateExpansion(expanded);
+    disclosureChecks.set(card, checkDisclosure);
+    disclosureResize.observe(card);
+    title.addEventListener('click', event => {
+      if (disclosure.hidden || (!disclosure.contains(event.target) && host.getSelection()?.toString())) return;
+      disclosure.focus({ preventScroll: true });
       const next = !expandedRows.has(expansionKey);
       if (next) expandedRows.add(expansionKey); else expandedRows.delete(expansionKey);
       updateExpansion(next);
+      checkDisclosure();
     });
     card.classList.toggle('catalog-card-sort-mode', sortingGroup === groupKey(group));
     card.addEventListener('click', event => {
-      if (sortingGroup === groupKey(group) || event.target.closest('button,input,a,select,textarea')
+      if (sortingGroup === groupKey(group) || title.contains(event.target)
+        || event.target.closest('button,input,a,select,textarea')
         || (expandedRows.has(expansionKey) && information.contains(event.target))
         || host.getSelection()?.toString()) return;
       card.querySelector('.catalog-card-apply').click();
@@ -436,6 +478,7 @@ function mountCatalogPanel(host, storage, connection) {
     return presentations;
   }
   function refresh() {
+    resetDisclosures();
     const { groups } = storage.catalog;
     if (sortingGroup !== undefined && sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)) {
       sortingGroup = undefined;
@@ -480,8 +523,10 @@ function mountCatalogPanel(host, storage, connection) {
       drawer.addEventListener('toggle', () => {
         if (!drawer.isConnected) return;
         const changed = collapsed.has(section.id) === drawer.open;
-        if (drawer.open) collapsed.delete(section.id);
-        else {
+        if (drawer.open) {
+          collapsed.delete(section.id);
+          for (const card of cards.children) disclosureChecks.get(card)?.();
+        } else {
           collapsed.add(section.id);
           if (sortingGroup === section.id) {
             sortingGroup = undefined;
