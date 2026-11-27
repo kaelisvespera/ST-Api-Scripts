@@ -44,9 +44,10 @@ for (const mode of ['st','tt']) test(mode+': five actions, expandable text and h
     await tab.setViewportSize({width,height:800});
     await tab.evaluate(colors=>{['--SmartThemeBodyColor','--SmartThemeBlurTintColor','--SmartThemeBorderColor','--SmartThemeQuoteColor'].forEach((key,i)=>document.documentElement.style.setProperty(key,colors[i]));document.documentElement.style.setProperty('--mainFontSize','20px');},colors);
     await tab.addStyleTag({content:'.menu_button{background:var(--SmartThemeBlurTintColor);color:var(--SmartThemeBodyColor)}'});
-    await tab.waitForTimeout(250); // Host theme transitions must settle before contrast and screenshots.
-    const fit=await card.evaluate(el=>{const box=el.getBoundingClientRect(),buttons=[...el.querySelectorAll('.catalog-card-actions button')].map(b=>b.getBoundingClientRect());return {names:[...el.querySelectorAll('.catalog-card-actions button')].map(b=>b.getAttribute('aria-label')),sameRow:buttons.every(b=>Math.abs(b.top-buttons[0].top)<1),fits:buttons.every(b=>b.left>=box.left&&b.right<=box.right&&b.width>=28),overflow:el.scrollWidth>el.clientWidth,truncated:el.querySelector('.catalog-card-notes dd').scrollWidth>el.querySelector('.catalog-card-notes dd').clientWidth,color:getComputedStyle(el).color,body:getComputedStyle(document.body).color};});
-    assert.deepEqual(fit.names,['应用','编辑','管理分组','移出当前分组','删除']);assert.ok(fit.sameRow&&fit.fits&&!fit.overflow&&fit.truncated,JSON.stringify(fit));assert.equal(fit.color,fit.body);
+    await tab.waitForFunction(expected => document.querySelector('dialog.st-api-manager[open]')?.dataset.catalogTheme === expected,
+      theme === 'light' ? 'light' : 'dark');
+    const fit=await card.evaluate(el=>{const box=el.getBoundingClientRect(),buttons=[...el.querySelectorAll('.catalog-card-actions button')].map(b=>b.getBoundingClientRect());return {names:[...el.querySelectorAll('.catalog-card-actions button')].map(b=>b.getAttribute('aria-label')),sameRow:buttons.every(b=>Math.abs(b.top-buttons[0].top)<1),fits:buttons.every(b=>b.left>=box.left&&b.right<=box.right&&b.width>=28),overflow:el.scrollWidth>el.clientWidth,truncated:el.querySelector('.catalog-card-notes dd').scrollWidth>el.querySelector('.catalog-card-notes dd').clientWidth,color:getComputedStyle(el).color,dialogColor:getComputedStyle(el.closest('dialog')).color};});
+    assert.deepEqual(fit.names,['应用','编辑','管理分组','移出当前分组','删除']);assert.ok(fit.sameRow&&fit.fits&&!fit.overflow&&fit.truncated,JSON.stringify(fit));assert.equal(fit.color,fit.dialogColor);
     const contrast=await card.evaluate(el=>{
       const ctx=document.createElement('canvas').getContext('2d');
       const lum=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);const rgb=[...ctx.getImageData(0,0,1,1).data].slice(0,3).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});return rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;};
@@ -68,27 +69,4 @@ for (const mode of ['st','tt']) test(mode+': five actions, expandable text and h
   await main.getByText('已应用',{exact:true}).waitFor();
   assert.equal(await tab.evaluate(()=>hostConnection.model),catalog.entries[0].model);
   await flush();assert.deepEqual(JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog.entries,catalog.entries);
-}));
-
-for(const mode of ['st','tt']) test(mode+': filtering away unassigned sorting clears mode before the group disappears',{timeout:60000},()=>withBrowser(mode,async({tab,open,stores,origin,assertConnection})=>{
-  const catalog={format:'st-api-manager-catalog',version:2,groups:[{id:'a',name:'分类组',color:'#3578ab'}],entries:[1,2,3].map(i=>({id:'row'+i,name:'模型'+i,model:'model'+i,site:i===3?'分类站点':'未分类站点',source:'custom',url:origin+'/provider/v1',key:'fixture-key',groupIds:i===3?['a']:[]}))};
-  stores.set('one',{version:1,values:{st_api_manager_catalog_v2:JSON.stringify({catalog,sync:{revision:null,pending:false}})}});
-  await open();const main=tab.getByRole('dialog',{name:'API 管理器',exact:true});
-  const sort=main.locator('.catalog-sort-toggle[data-group-id=""]');
-  await sort.click();
-  await main.getByRole('button',{name:'筛选',exact:true}).click();
-  const filters=tab.getByRole('dialog',{name:'筛选',exact:true});
-  await filters.locator('label').filter({has:tab.getByText('分类站点',{exact:true})}).locator('input').check();
-  await filters.getByRole('button',{name:'关闭',exact:true}).click();
-  assert.equal(await main.locator('.catalog-card-sort-mode').count(),0);
-  assert.equal(await sort.count(),0);
-  await tab.keyboard.press('Escape');
-  await main.waitFor({state:'hidden'});
-  await tab.locator('#st-api-manager-extension-button').click();
-  await main.getByRole('button',{name:'筛选',exact:true}).click();
-  await filters.getByRole('button',{name:'清空',exact:true}).click();
-  await filters.getByRole('button',{name:'关闭',exact:true}).click();
-  assert.equal(await sort.getAttribute('aria-pressed'),'false');
-  assert.equal(await main.locator('.catalog-sort-controls').count(),0);
-  await assertConnection();
 }));

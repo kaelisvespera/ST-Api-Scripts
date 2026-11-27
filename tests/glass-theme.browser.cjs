@@ -100,29 +100,26 @@ for (const mode of ['st', 'tt']) for (const [theme, values] of Object.entries(th
         hostPopup.className = 'popup';
         document.body.append(hostPopup);
       });
-      if (mode === 'tt' && theme === 'light') {
-        // Exercise opening a glass dialog in a WebView without relative RGB.
-        await tab.addStyleTag({ content: 'dialog.st-api-manager.popup { --catalog-reading-surface: var(--SmartThemeBlurTintColor); }' });
-      }
       await tab.locator('#st-api-manager-extension-button').click();
       await assertSurface(main, 'main dialog');
       await assertYellowGroup(main, 'summary.inline-drawer-header');
       await assertLegible(main.locator('.catalog-card-alias'), 'entry alias');
 
-      await button(main, '筛选').click();
-      const filters = dialog(tab, '筛选');
-      await assertSurface(filters, 'filter dialog');
-      await assertLegible(filters.getByText(tagName, { exact: true }), 'filter tag name');
-      await button(filters, '关闭').click();
+      assert.equal(await main.getAttribute('data-catalog-theme'), theme);
 
-      await button(main, '标签设置').click();
+      await button(main, '设置').click();
+      const settings = dialog(tab, '设置');
+      await assertSurface(settings, 'settings hub');
+      await button(settings, '标签设置').click();
       const tags = dialog(tab, '标签设置');
       await assertSurface(tags, 'tag dialog');
+      await assertLegible(tags.locator('.category-tag-name').filter({ hasText: tagName }), 'tag settings name');
       await button(tags, '重命名或改色').click();
       const editTag = dialog(tab, '编辑标签');
       await assertSurface(editTag, 'tag edit dialog');
       await button(editTag, '取消').click();
       await button(tags, '取消').click();
+      await button(settings, '关闭').click();
 
       await button(main, 'API 管理').click();
       const manager = dialog(tab, 'API 管理');

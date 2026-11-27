@@ -14,6 +14,11 @@ const openPane = async (tab, from, button, title = button) => {
   await pane.waitFor();
   return pane;
 };
+const openSettingsPane = async (tab, panel, name) => openPane(tab, await openPane(tab, panel, '设置'), name);
+const closeSettingsPane = async (tab, pane, label = '关闭') => {
+  await exactButton(pane, label).click();
+  await exactButton(tab.getByRole('dialog', { name: '设置', exact: true }), '关闭').click();
+};
 const capture = async (tab, name) => {
   if (!preview) return;
   fs.mkdirSync(preview, { recursive: true });
@@ -65,12 +70,12 @@ for (const mode of ['st', 'tt']) {
     assert.equal(desktop.overflow, false);
     await capture(tab, mode + '-desktop');
     await tab.setViewportSize({ width: 375, height: 812 });
-    await assertOneRow(panel.locator('.api-manager-toolbar > button'), 5);
+    await assertOneRow(panel.locator('.api-manager-toolbar > button'), 3);
     await tab.setViewportSize({ width: 390, height: 844 });
     const mobile = await layout();
     assert.ok(mobile.width <= 358 && mobile.left >= 16 && mobile.right <= 374);
     assert.equal(mobile.overflow, false);
-    await assertOneRow(panel.locator('.api-manager-toolbar > button'), 5);
+    await assertOneRow(panel.locator('.api-manager-toolbar > button'), 3);
     await capture(tab, mode + '-mobile');
     const firstDrawer = panel.locator('details.inline-drawer').first();
     await firstDrawer.locator('summary').click();
@@ -104,7 +109,7 @@ for (const mode of ['st', 'tt']) {
     await exactButton(editor, '取消').click();
     await editor.waitFor({ state: 'hidden' });
 
-    const tags = await openPane(tab, panel, '标签设置');
+    const tags = await openSettingsPane(tab, panel, '标签设置');
     await assertOneRow(tags.locator('.selection-toolbar > button'), 3);
     await assertOneRow(tags.locator('.catalog-tag-actions button'), 4);
     await capture(tab, mode + '-tag-settings-mobile');
@@ -117,7 +122,7 @@ for (const mode of ['st', 'tt']) {
     await exactButton(tags, '添加标签').click();
     await expectText(tags, '已更新所选配置的标签。');
     await exactButton(tags, '移除标签').click();
-    await exactButton(tags, '取消').click();
+    await closeSettingsPane(tab, tags, '取消');
     const manager = await openPane(tab, panel, 'API 管理');
     assert.equal(await manager.locator('.group-list-item').count(), 1);
     await expectText(manager, '2 个密钥');
@@ -190,20 +195,13 @@ for (const mode of ['st', 'tt']) {
     await exactButton(manager, '关闭').click();
     await flush();
 
-    let filter = await openPane(tab, panel, '筛选');
-    await filter.getByRole('checkbox', { name: /第三组/ }).check();
-    await exactButton(filter, '关闭').click();
-    assert.equal(await rows.count(), 2);
-    filter = await openPane(tab, panel, '筛选');
-    await exactButton(filter, '清空').click();
-    await exactButton(filter, '关闭').click();
     assert.equal(await rows.count(), 8);
     assert.ok(models.every(request => request.method === 'GET' && request.cookie === undefined));
     await assertConnection();
 
     await open();
     assert.equal(await rows.count(), 8);
-    let data = await openPane(tab, panel, '数据');
+    let data = await openSettingsPane(tab, panel, '数据');
     const [download] = await Promise.all([tab.waitForEvent('download'), exactButton(data, '导出').click()]);
     const stream = await download.createReadStream();
     const chunks = [];
@@ -240,12 +238,12 @@ for (const mode of ['st', 'tt']) {
     assert.equal(JSON.parse(stores.get('one').values.api_configs_manager).length, 2);
     await assertConnection();
     await open('?device=two');
-    data = await openPane(tab, panel, '数据');
+    data = await openSettingsPane(tab, panel, '数据');
     await exactButton(data, '从账户同步').click();
     await expectText(data, '已从账户读取配置。');
     await flush();
     assert.deepEqual(JSON.parse(stores.get('two').values.st_api_manager_catalog_v2).catalog, exported);
-    await exactButton(data, '关闭').click();
+    await closeSettingsPane(tab, data);
     await assertConnection();
 
     const record = (key, model) => created.find(row => row.key === key && row.model === model);
@@ -384,7 +382,7 @@ for (const mode of ['st', 'tt']) {
     assert.equal(await card(extra).getByText('额外模型的独立备注').count(), 0);
     assert.equal(await card(a).getByText('0.5/次').count(), 1);
 
-    const data = await openPane(tab, panel, '数据');
+    const data = await openSettingsPane(tab, panel, '数据');
     const [download] = await Promise.all([tab.waitForEvent('download'), exactButton(data, '导出').click()]);
     const chunks = [];
     for await (const chunk of await download.createReadStream()) chunks.push(chunk);
@@ -400,7 +398,7 @@ for (const mode of ['st', 'tt']) {
     }
     await importFile(Buffer.from(JSON.stringify(older)), false);
     assert.deepEqual(await readCatalog(), saved);
-    await exactButton(data, '关闭').click();
+    await closeSettingsPane(tab, data);
     await exactButton(card(extra), '编辑').click();
     await exactButton(editor, '移除模型').click();
     await saveEditor();
@@ -409,11 +407,11 @@ for (const mode of ['st', 'tt']) {
     assert.equal(removed.entries.find(row => row.key === extra.key && !row.model).modelNote, undefined);
     assert.equal(readNote(removed, removed.entries.find(row => row.id === a.id)), 'CCMAX 更新');
     assert.equal(removed.entries.find(row => row.id === a.id).modelNote, '0.5/次');
-    const replacePane = await openPane(tab, panel, '数据');
+    const replacePane = await openSettingsPane(tab, panel, '数据');
     assert.equal(await replacePane.isVisible(), true);
     await importFile(exported, true);
     assert.deepEqual(await readCatalog(), saved);
-    await exactButton(replacePane, '关闭').click();
+    await closeSettingsPane(tab, replacePane);
     await exactButton(card(a), '编辑').click();
     await keyNotes.first().fill('');
     await saveEditor();
@@ -567,7 +565,7 @@ for (const mode of ['st', 'tt']) {
     ]);
     assert.ok(iconButtons.every(button => button.nativeClasses && !button.text));
 
-    const tags = await openPane(tab, panel, '标签设置');
+    const tags = await openSettingsPane(tab, panel, '标签设置');
     const search = tags.getByLabel('搜索组名、模型、标题或备注');
     const verifyTagFooter = async (disabled, state) => {
       for (const [width, height] of viewports) {
@@ -624,7 +622,7 @@ for (const mode of ['st', 'tt']) {
     await expectText(tags, '[收藏]');
     await search.fill('手写的条目标题');
     assert.equal(await tags.locator('.config-item').count(), 1);
-    await exactButton(tags, '取消').click();
+    await closeSettingsPane(tab, tags, '取消');
 
     const groupAction = exactButton(card(a), '管理分组');
     await groupAction.tap();
@@ -685,7 +683,7 @@ for (const mode of ['st', 'tt']) {
     };
     const initial = seed('remote-1', account);
     const panel = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
-    const data = await openPane(tab, panel, '数据');
+    const data = await openSettingsPane(tab, panel, '数据');
     const dialog = tab.getByRole('dialog', { name: '账户同步冲突', exact: true });
     const show = async action => {
       await exactButton(data, action).click();

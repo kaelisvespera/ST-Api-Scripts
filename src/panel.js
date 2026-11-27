@@ -31,11 +31,10 @@ function mountCatalogPanel(host, storage, connection) {
   const closeButton = (popup, label = '关闭') => button(label, () => popup.dialog.close(), 'times');
   const style = make('style', '', catalogPanelCss);
   doc.head.append(style);
+  const theme = createCatalogTheme(host, storage);
   let busy = false;
   function popup(title, size = 'medium', main = false) {
     const dialog = make('dialog', 'st-api-manager popup popup_type textAlignJustify st-orb-popup st-api-manager-native-dialog st-api-manager-native-dialog--' + size);
-    // Host themes can set the generic popup background with !important.
-    dialog.style.setProperty('background-color', 'var(--catalog-reading-surface)', 'important');
     dialog.setAttribute('aria-label', title);
     if (!main) dialog.dataset.nested = '';
     const frame = make('div', 'popup-body');
@@ -80,15 +79,7 @@ function mountCatalogPanel(host, storage, connection) {
     return {
       dialog, heading, scroll, footer, status,
       open() {
-        // Older WebViews serialize translucent theme colors as rgba().
-        dialog.style.removeProperty('--catalog-reading-surface');
-        dialog.style.removeProperty('--SmartThemeBodyColor');
-        const { backgroundColor, color } = (doc.defaultView ?? host).getComputedStyle(dialog);
-        const opaqueRgb = value => value.replace(/^rgba\(([^,]+, [^,]+, [^,]+), [^)]+\)$/, 'rgb($1)');
-        if (opaqueRgb(backgroundColor) !== backgroundColor) {
-          dialog.style.setProperty('--catalog-reading-surface', opaqueRgb(backgroundColor));
-        }
-        if (opaqueRgb(color) !== color) dialog.style.setProperty('--SmartThemeBodyColor', opaqueRgb(color));
+        theme.applyDialog(dialog);
         dialog.showModal();
       },
     };
@@ -116,8 +107,6 @@ function mountCatalogPanel(host, storage, connection) {
   version.setAttribute('aria-label', '当前版本');
   main.footer.classList.add('catalog-main-footer');
   main.footer.append(version, closeButton(main));
-  const categoryFilter = new Set();
-  const siteFilter = new Set();
   const unassigned = Symbol('uncategorized');
   let sortingGroup;
   const expandedRows = new Set();
@@ -135,13 +124,9 @@ function mountCatalogPanel(host, storage, connection) {
   main.dialog.addEventListener('close', () => { sortingGroup = undefined; expandedRows.clear(); });
   const collapsed = new Set(storage.collapsedGroups.map(id => id === null ? unassigned : id));
   const toolbar = make('div', 'api-manager-toolbar');
-  const filter = button('筛选', filters, 'filter');
-  filter.setAttribute('aria-label', '筛选');
-  const filterBadge = make('span', 'filter-badge');
-  filterBadge.hidden = true;
-  filter.append(filterBadge);
-  toolbar.append(button('API 管理', manager, 'layer-group'), button('标签设置', tagSettings, 'tags'),
-    filter, button('检测', detection, 'bolt'), button('数据', dataPanel, 'database'));
+  const managerButton = button('API 管理', manager, 'layer-group');
+  managerButton.classList.add('catalog-toolbar-primary');
+  toolbar.append(managerButton, button('检测', detection, 'bolt'), button('设置', settings, 'gear'));
   main.heading.append(toolbar);
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
   const rowTitle = row => row.model ? '[' + row.site + '] ' + row.model : row.site;
@@ -449,25 +434,18 @@ function mountCatalogPanel(host, storage, connection) {
     return presentations;
   }
   function refresh() {
-    const { groups, entries } = storage.catalog;
-    if (sortingGroup !== undefined && ((categoryFilter.size && !categoryFilter.has(sortingGroup))
-      || (sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)))) sortingGroup = undefined;
-    const availableSites = sites();
-    const presentations = rowPresentations(availableSites);
-    for (const id of siteFilter) if (!availableSites.has(id)) siteFilter.delete(id);
-    for (const id of categoryFilter) if (id !== unassigned && !groups.some(group => group.id === id)) categoryFilter.delete(id);
-    const count = categoryFilter.size + siteFilter.size;
-    filterBadge.hidden = !count;
-    filterBadge.textContent = String(count);
+    const { groups } = storage.catalog;
+    if (sortingGroup !== undefined && sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)) {
+      sortingGroup = undefined;
+    }
+    const presentations = rowPresentations(sites());
     const panel = make('div', 'api-manager-panel');
     const list = make('div', 'api-config-list');
     panel.append(list);
     const sections = [{ id: unassigned, name: '未分类' }, ...groups];
     for (const section of sections) {
       const isUnassigned = section.id === unassigned;
-      if (categoryFilter.size && !categoryFilter.has(section.id)) continue;
-      const rows = orderedGroupEntries(storage.catalog, isUnassigned ? null : section.id)
-        .filter(row => !siteFilter.size || siteFilter.has(siteId(row)));
+      const rows = orderedGroupEntries(storage.catalog, isUnassigned ? null : section.id);
       if (sortingGroup === section.id && (!rows.length || collapsed.has(section.id))) sortingGroup = undefined;
       if (!rows.length && isUnassigned) continue;
       const drawer = make('details', 'inline-drawer');
@@ -530,7 +508,7 @@ function mountCatalogPanel(host, storage, connection) {
       drawer.append(header, wrap);
       list.append(drawer);
     }
-    if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '没有匹配的配置'));
+    if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '暂无 API 配置'));
     main.scroll.replaceChildren(panel);
   }
   function manager() {
@@ -571,61 +549,35 @@ function mountCatalogPanel(host, storage, connection) {
     host, storage, popup, make, button, fieldInput, closeButton, run, refresh, groupMarker,
   }, rows, afterSave);
 
-  function filters() {
-    const pane = popup('筛选');
-    const wrap = make('div', 'category-popup-modal filter-modal');
-    const { entries, groups } = storage.catalog;
-    const selections = [categoryFilter, siteFilter];
-    const controls = [];
-    const header = make('div', 'category-popup-header');
-    header.append(make('span', 'category-popup-title', '筛选标签和配置组'), button('清空', () => {
-      for (const selection of selections) selection.clear();
-      for (const control of controls) control.checked = false;
-      refresh();
-    }, 'eraser'));
-    wrap.append(header);
+  function settings(event) {
+    event.currentTarget.focus({ preventScroll: true });
+    const pane = popup('设置', 'small');
+    const list = make('div', 'catalog-settings-list');
     const sections = [
-      ['标签', [{ id: unassigned, name: '未分类', count: entries.filter(row => !row.groupIds.length).length },
-        ...groups.map(group => ({ ...group, count: entries.filter(row => row.groupIds.includes(group.id)).length }))]],
-      ['配置组', [...sites()].map(([id, rows]) => ({ id, name: rows[0].site, count: rows.length }))],
+      ['标签设置', '管理分组、颜色和图标', 'tags', tagSettings],
+      ['数据', '导入、导出、同步和入口', 'database', dataPanel],
+      ['主题设置', '日夜模式与透明度', 'palette', () => theme.openSettings({ popup, make, button, closeButton })],
     ];
-    sections.forEach(([name, options], index) => {
-      const section = make('section', 'category-popup-section');
-      const header = make('div', 'category-popup-section__header');
-      const inputs = [];
-      const selected = selections[index];
-      const selectAll = value => {
-        for (const [id, control] of inputs) {
-          control.checked = value;
-          if (value) selected.add(id);
-          else selected.delete(id);
-        }
-        refresh();
-      };
-      header.append(make('strong', 'category-popup-section__title', name),
-        button('全选', () => selectAll(true)));
-      const list = make('div', 'category-popup-options');
-      for (const option of options) {
-        const label = make('label', 'category-popup-option filter-option-item');
-        const input = make('input');
-        input.type = 'checkbox';
-        input.checked = selected.has(option.id);
-        input.addEventListener('change', () => {
-          if (input.checked) selected.add(option.id);
-          else selected.delete(option.id);
-          refresh();
-        });
-        inputs.push([option.id, input]);
-        controls.push(input);
-        label.append(input);
-        if (option.icon) label.append(groupMarker(option));
-        label.append(make('span', '', option.name), make('small', 'category-popup-option__count', String(option.count)));
-        list.append(label);
-      }
-      section.append(header, list);
-      wrap.append(section);
-    });
-    pane.scroll.append(wrap);
+    for (const [label, description, glyph, open] of sections) {
+      const entry = make('button', 'menu_button interactable catalog-settings-entry');
+      entry.type = 'button';
+      entry.setAttribute('aria-label', label);
+      entry.setAttribute('aria-haspopup', 'dialog');
+      const copy = make('span', 'catalog-settings-entry-copy');
+      const detail = make('span', 'catalog-settings-entry-description', description);
+      detail.id = 'catalog-settings-' + glyph + '-description';
+      entry.setAttribute('aria-describedby', detail.id);
+      copy.append(make('span', 'catalog-settings-entry-label', label), detail);
+      const chevron = icon('chevron-right');
+      chevron.classList.add('catalog-settings-entry-chevron');
+      entry.append(icon(glyph), copy, chevron);
+      entry.addEventListener('click', () => {
+        entry.focus({ preventScroll: true });
+        open();
+      });
+      list.append(entry);
+    }
+    pane.scroll.append(list);
     pane.footer.append(closeButton(pane));
     pane.open();
   }

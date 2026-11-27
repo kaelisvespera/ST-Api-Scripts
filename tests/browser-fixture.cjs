@@ -24,7 +24,7 @@ const hostStyle = `
   .inline-drawer-header{display:flex;align-items:center}.flex-container{display:flex}
   .fa-solid:before{content:'·';display:inline-block;width:.9em;text-align:center;font-style:normal}
   .fa-sliders:before,.fa-layer-group:before{content:'☷'}.fa-tags:before{content:'◇'}.fa-tag:before{content:'◇'}
-  .fa-filter:before{content:'▽'}.fa-heart-pulse:before{content:'♡'}.fa-database:before{content:'▤'}
+  .fa-heart-pulse:before{content:'♡'}.fa-database:before{content:'▤'}
   .fa-bolt:before{content:'ϟ'}.fa-pen-to-square:before,.fa-pen:before{content:'✎'}.fa-trash:before{content:'▣'}
   .fa-circle-chevron-up:before{content:'⌃'}.fa-circle-chevron-down:before{content:'⌄'}
   .fa-check:before{content:'✓'}.fa-plus:before{content:'+'}.fa-xmark:before,.fa-times:before{content:'×'}

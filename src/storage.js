@@ -4,12 +4,22 @@ const legacyAccountKey = 'st_api_manager_sync_v1';
 const accountKey = 'st_api_manager_sync_v2';
 const connectionKey = 'st_api_manager_connection_v2';
 const uiKey = 'st_api_manager_ui_v1';
+const maxCatalogTransparency = 30;
 const storageEntry = { namespace: managerNamespace, key: 'state' };
 const legacyStorageKeys = [
   'api_configs_manager', 'api_configs_categories', 'api_configs_collapsed_categories',
   'api_configs_category_switch_indexes', 'stb_api_management_settings', 'api_configs_invalid_issues',
   'st_api_manager_sync_metadata_v1', 'st_api_manager_tt_secret_bindings_v1',
 ];
+
+function normalizeThemePreferences(value) {
+  const amount = value?.transparency;
+  return {
+    followHost: value?.followHost !== false,
+    manual: value?.manual === 'dark' ? 'dark' : 'light',
+    transparency: Number.isFinite(amount) ? Math.min(maxCatalogTransparency, Math.max(0, Math.round(amount))) : 0,
+  };
+}
 
 async function openCatalogStorage(host, context, browserStorage) {
   const store = host.__TAURITAVERN__?.api?.extension?.store;
@@ -202,6 +212,10 @@ async function openCatalogStorage(host, context, browserStorage) {
     legacyTitleSite,
     get syncInfo() { return { ...state.sync }; },
     get connectionState() { return savedObject(connectionKey); },
+    get themePreferences() { return normalizeThemePreferences(savedObject(uiKey).theme); },
+    setThemePreferences: preference => transact(() => persist(state, {
+      [uiKey]: JSON.stringify({ ...savedObject(uiKey), theme: normalizeThemePreferences(preference) }),
+    })),
     get entryPoints() {
       const value = savedObject(uiKey).entryPoints;
       return value && typeof value.wand === 'boolean' && typeof value.qr === 'boolean' && (value.wand || value.qr)

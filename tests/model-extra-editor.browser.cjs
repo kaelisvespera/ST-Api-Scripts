@@ -71,8 +71,10 @@ for (const [mode, width] of [['st', 320], ['tt', 390]]) {
       };
 
       await openGroupEditor();
-      assert.equal(await parameterBox(0).locator('summary').evaluate(el => getComputedStyle(el).color), 'rgb(255, 242, 210)');
-      assert.equal(await modelCard(0).evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(53, 32, 64)');
+      assert.equal(await editor.getAttribute('data-catalog-theme'), 'dark');
+      const summary = parameterBox(0).locator('summary');
+      assert.equal(await summary.evaluate(el => getComputedStyle(el).color),
+        await editor.evaluate(el => getComputedStyle(el).color));
       await assertExtras(entries.map(entry => entry.extra));
       for (const [index, extra] of expected.entries()) {
         for (const [field, value] of Object.entries(extra)) {

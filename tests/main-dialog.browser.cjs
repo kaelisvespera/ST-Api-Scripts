@@ -36,16 +36,19 @@ for (const mode of ['st', 'tt']) {
       await button(await check('编辑 API 配置'), '取消').click();
       await button(manage, '关闭').click();
 
-      await button(main, '标签设置').click();
+      await button(main, '设置').click();
+      const settings = await check('设置');
+      await button(settings, '标签设置').click();
       const tags = await check('标签设置');
       await button(tags, '重命名或改色').first().click();
       await button(await check('编辑标签'), '取消').click();
       await button(tags, '取消').click();
 
-      for (const name of ['筛选', '数据']) {
-        await button(main, name).click();
+      for (const name of ['数据', '主题设置']) {
+        await button(settings, name).click();
         await button(await check(name), '关闭').click();
       }
+      await button(settings, '关闭').click();
     }));
 
   test(mode + ': outside taps return one dialog at a time without reaching the host', { timeout: 30000 }, () =>
@@ -77,7 +80,10 @@ for (const mode of ['st', 'tt']) {
         assert.equal(await main.isVisible(), true, 'dragging across the boundary does not dismiss');
       }
 
-      const openTags = button(main, '标签设置');
+      const openSettings = button(main, '设置');
+      await openSettings.press('Enter');
+      const settings = dialog(tab, '设置');
+      const openTags = button(settings, '标签设置');
       await openTags.click();
       const tags = dialog(tab, '标签设置');
       const editTag = button(tags, '重命名或改色').first();
@@ -90,8 +96,12 @@ for (const mode of ['st', 'tt']) {
       assert.equal(await editTag.evaluate(element => element === document.activeElement), true);
       await tab.mouse.click(outside.x, outside.y);
       await tags.waitFor({ state: 'hidden' });
-      assert.equal(await main.isVisible(), true, 'the next click returns to the main dialog');
-      assert.equal(await main.evaluate(element => element.contains(document.activeElement)), true);
+      assert.equal(await settings.isVisible(), true, 'the next click returns to the settings hub');
+      assert.equal(await openTags.evaluate(element => element === document.activeElement), true);
+      await tab.mouse.click(outside.x, outside.y);
+      await settings.waitFor({ state: 'hidden' });
+      assert.equal(await main.isVisible(), true, 'closing the settings hub returns to the main dialog');
+      assert.equal(await openSettings.evaluate(element => element === document.activeElement), true);
 
       await tab.mouse.click(outside.x, outside.y, { button: 'right' });
       assert.equal(await main.isVisible(), true, 'right click does not dismiss');

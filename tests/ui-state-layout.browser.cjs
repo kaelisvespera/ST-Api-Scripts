@@ -42,7 +42,9 @@ for (const mode of ['st', 'tt']) {
         .menu_button_icon{display:flex;align-items:center;width:fit-content;gap:5px}
       ` });
       const main = pane(tab, 'API 管理器');
-      await button(main, '数据').click();
+      await button(main, '设置').click();
+      const settings = pane(tab, '设置');
+      await button(settings, '数据').click();
       const data = pane(tab, '数据');
       const [download] = await Promise.all([tab.waitForEvent('download'), button(data, '导出').click()]);
       const chunks = [];
@@ -93,7 +95,7 @@ for (const mode of ['st', 'tt']) {
       await flush();
       assert.deepEqual(JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog, incoming);
       await button(data, '关闭').click();
-      await button(main, '标签设置').click();
+      await button(settings, '标签设置').click();
       const tags = pane(tab, '标签设置');
       const chips = tags.locator('.category-tag');
       for (const [width, height] of viewports) {

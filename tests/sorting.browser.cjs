@@ -9,7 +9,7 @@ function seed(stores, origin) {
   const catalog = { format: 'st-api-manager-catalog', version: 2,
     groups: ['A','B','C'].map(id => ({ id, name: '标签' + id, color: '#3b82f6' })),
     entries: ['one','two','three'].map((id,index) => ({ id, name: '', model: '企业' + (index + 1),
-      site: index === 1 ? '隐藏站点' : '显示站点', source: 'custom', url: origin + '/provider/v1', key: 'fixture-sort-key', groupIds: ['A','B'] })) };
+      site: index === 1 ? '合成站点甲' : '合成站点乙', source: 'custom', url: origin + '/provider/v1', key: 'fixture-sort-key', groupIds: ['A','B'] })) };
   stores.set('one', { version: 1, values: { st_api_manager_catalog_v2: JSON.stringify({ catalog, sync: { revision: null, pending: false } }) } });
   return catalog;
 }
@@ -24,7 +24,7 @@ async function drag(tab, handle, target, cancel) {
   if (cancel) await tab.keyboard.press('Escape');
   await tab.mouse.up();
 }
-for (const mode of ['st','tt']) test(mode + ': pointer and keyboard sorting persists, cancels safely and isolates filtered labels', { timeout: 60000 },
+for (const mode of ['st','tt']) test(mode + ': pointer and keyboard sorting persists, cancels safely and isolates labels', { timeout: 60000 },
   () => withBrowser(mode, async ({tab, open, stores, origin, flush, assertConnection}) => {
     const original = seed(stores,origin); await tab.setViewportSize({width:1100,height:1100}); await open();
     const main = pane(tab,'API 管理器'); const a = group(main,'A'), b = group(main,'B'); await enterSort(main);
@@ -36,7 +36,8 @@ for (const mode of ['st','tt']) test(mode + ': pointer and keyboard sorting pers
     await a.locator('.catalog-sort-handle').last().press('ArrowUp');
     await tab.waitForFunction(() => [...document.querySelectorAll('.catalog-config-card[data-group-id="A"]')].map(n=>n.dataset.entryId).join(',') === 'two,one,three' && document.activeElement?.closest('.catalog-config-card')?.dataset.entryId === 'one');
     assert.deepEqual(await order(a),['two','one','three']);
-    await button(main,'标签设置').click(); const tags=pane(tab,'标签设置');
+    await button(main,'设置').click(); const settings=pane(tab,'设置');
+    await button(settings,'标签设置').click(); const tags=pane(tab,'标签设置');
     await drag(tab,tags.locator('.catalog-sort-handle').first(),tags.locator('.catalog-sort-tags > .category-tag').last());
     await tags.getByText('已保存标签和主界面的分组顺序。',{exact:true}).waitFor();
     assert.deepEqual(await tags.locator('.catalog-sort-tags > .category-tag').evaluateAll(nodes=>nodes.map(n=>n.dataset.sortId)),['B','C','A']);
@@ -55,15 +56,10 @@ for (const mode of ['st','tt']) test(mode + ': pointer and keyboard sorting pers
     await tab.addStyleTag({content:':root{--mainFontSize:20px}.fa-grip-vertical:before{content:"⠿"}.fa-arrow-up:before{content:"↑"}.fa-arrow-down:before{content:"↓"}'});
     assert.deepEqual(await order(group(pane(tab,'API 管理器'),'A')),['two','one','three']);
     assert.deepEqual(JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog.entries,original.entries);
-    await button(main,'筛选').click(); const filters=pane(tab,'筛选');
-    await filters.locator('label').filter({hasText:'显示站点'}).locator('input').check();
-    await button(filters,'关闭').click();
-    assert.deepEqual(await order(a),['one','three']); await enterSort(main);
-    await a.locator('.catalog-sort-handle').first().press('ArrowDown');
-    await main.getByText('已保存此分组内的顺序。',{exact:true}).waitFor();
-    assert.deepEqual(await order(a),['three','one']); await flush();
     const saved=JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog;
-    assert.deepEqual(saved.groupOrders.find(o=>o.groupId==='A').entryIds,['two','three','one']);
+    assert.deepEqual(saved.groupOrders.find(o=>o.groupId==='A').entryIds,['two','one','three']);
+    assert.deepEqual(await order(b),['one','two','three']);
+    await enterSort(main);
     await tab.screenshot({path:path.resolve('work','compact-cards-20261113','sorting-screenshots',mode+'-cards-320.png')});
     await assertConnection();
   }));

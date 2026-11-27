@@ -2,14 +2,35 @@
  * The original selectors and theme tokens follow the old toolbar, drawers,
  * compact configuration rows, and secondary popups. */
 dialog.st-api-manager.popup {
-  --st-orb-primary: var(--SmartThemeQuoteColor, #667eea);
-  --st-orb-success: var(--SmartThemeSuccessColor, #28a745);
-  --st-orb-danger: var(--SmartThemeDangerColor, #dc3545);
-  --st-orb-warning: var(--SmartThemeWarningColor, #ffc107);
-  --st-orb-info: var(--SmartThemeInfoColor, #3b82f6);
-  --st-orb-text-contrast: var(--SmartThemeBlurTintColor, #27282d);
-  --catalog-reading-surface: var(--SmartThemeBlurTintColor, #27282d);
-  --catalog-reading-ink: var(--SmartThemeBodyColor, #eee);
+  --catalog-palette-surface: #e2dbd1;
+  --catalog-reading-ink: #3b352e;
+  --catalog-muted-ink: #605449;
+  --catalog-control-ink: #50443a;
+  --catalog-group-surface: #d9d0c4;
+  --catalog-card-surface: #e6ded3;
+  --catalog-field-surface: #e9e1d6;
+  --catalog-control-surface: #d7cdbf;
+  --catalog-control-hover: #cfc2b3;
+  --catalog-control-selected: #c9b9a6;
+  --catalog-line: #b9ac9d;
+  --catalog-accent: #775940;
+  --st-orb-success: #4b6758;
+  --st-orb-danger: #8d4d4b;
+  --st-orb-warning: #805a34;
+  --st-orb-info: #4e6574;
+  --catalog-reading-surface: var(--catalog-palette-surface);
+  --catalog-panel-background: var(--catalog-reading-surface);
+  /* Alias the old helper tokens only inside this dialog. Host styles also read them. */
+  --SmartThemeBodyColor: var(--catalog-reading-ink);
+  --SmartThemeBlurTintColor: var(--catalog-reading-surface);
+  --SmartThemeBorderColor: var(--catalog-line);
+  --SmartThemeQuoteColor: var(--catalog-accent);
+  --SmartThemeSuccessColor: var(--st-orb-success);
+  --SmartThemeDangerColor: var(--st-orb-danger);
+  --SmartThemeWarningColor: var(--st-orb-warning);
+  --SmartThemeInfoColor: var(--st-orb-info);
+  --st-orb-primary: var(--catalog-accent);
+  --st-orb-text-contrast: var(--catalog-reading-surface);
   --st-orb-border-soft: color-mix(in srgb, var(--SmartThemeBorderColor) 75%, transparent);
   --st-orb-bg-surface-soft: color-mix(in srgb, var(--SmartThemeBodyColor) 6%, transparent);
   --st-orb-shadow-sm: 0 2px 4px var(--SmartThemeShadowColor, #0003);
@@ -42,17 +63,37 @@ dialog.st-api-manager.popup {
   padding: var(--catalog-dialog-padding);
   overflow: hidden;
   color: var(--catalog-reading-ink);
-  background: var(--catalog-reading-surface);
+  background: var(--catalog-panel-background);
   opacity: 1;
+  color-scheme: light;
   text-shadow: none;
   border: 1px solid var(--SmartThemeBorderColor, #555);
   border-radius: 10px;
   text-align: left;
 }
-/* Keep the host tint, with a solid surface between dialog text and chat. */
-@supports (background-color: rgb(from #000 r g b / 1)) {
-  dialog.st-api-manager.popup {
-    --catalog-reading-surface: rgb(from var(--SmartThemeBlurTintColor, #27282d) r g b / 1);
+dialog.st-api-manager.popup[data-catalog-theme="dark"] {
+  --catalog-palette-surface: #2f2e34;
+  --catalog-reading-ink: #e1dad1;
+  --catalog-muted-ink: #bfb5a9;
+  --catalog-control-ink: #cfc1b3;
+  --catalog-group-surface: #39383e;
+  --catalog-card-surface: #35343a;
+  --catalog-field-surface: #38363c;
+  --catalog-control-surface: #434148;
+  --catalog-control-hover: #4d4951;
+  --catalog-control-selected: #544c51;
+  --catalog-line: #575159;
+  --catalog-accent: #c6a98e;
+  --st-orb-success: #a0beac;
+  --st-orb-danger: #d6a29e;
+  --st-orb-warning: #d0b381;
+  --st-orb-info: #a1bdcd;
+  color-scheme: dark;
+}
+@supports (background-color: color-mix(in srgb, black, white)) {
+  dialog.st-api-manager.popup[data-catalog-follow-host="true"] {
+    --catalog-reading-surface: color-mix(in srgb, var(--catalog-palette-surface) 90%, var(--catalog-host-tint, var(--catalog-palette-surface)));
+    --catalog-panel-background: color-mix(in srgb, var(--catalog-reading-surface), transparent var(--catalog-panel-transparency, 0%));
   }
 }
 dialog.st-api-manager.popup:not([open]) { display: none; }
@@ -65,7 +106,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager.popup .popup-content { display: flex; flex-direction: column; min-height: 0; text-align: left; }
 .st-api-manager.popup .popup-body { max-height: calc(var(--catalog-dialog-height) - 2 * var(--catalog-dialog-padding) - 2px); }
 .st-api-manager.popup .popup-content { flex: 1 1 auto; }
-.st-api-manager.popup .popup-header { margin: 0 0 8px; }
+.st-api-manager.popup .popup-header { margin: 0 0 10px; padding-block-end: 2px; color: var(--catalog-reading-ink); font-size: var(--st-orb-font-xl); font-weight: 650; }
 .st-api-manager.popup .popup-scroll-content { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }
 .st-api-manager.popup .popup-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; flex-shrink: 0; margin-top: 8px; }
 .st-api-manager.popup .catalog-main-footer { align-items: center; justify-content: space-between; }
@@ -80,7 +121,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 }
 .st-api-manager .api-manager-toolbar > .menu_button {
   display: inline-flex; align-items: center; justify-content: center;
-  min-height: 34px; width: auto; margin: 0; gap: 4px; padding: 4px 8px; white-space: nowrap;
+  min-height: 44px; width: auto; margin: 0; gap: 6px; padding: 4px 10px; white-space: nowrap;
 }
 .st-api-manager .api-manager-toolbar > .menu_button i + span { margin: 0; }
 .st-api-manager.popup .st-native-hint { color: var(--catalog-reading-ink); }
@@ -107,9 +148,8 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager summary.inline-drawer-header::-webkit-details-marker { display: none; }
 .st-api-manager summary.catalog-group-heading {
   color: var(--catalog-reading-ink); text-shadow: none;
-  background-color: var(--catalog-reading-surface);
-  background: color-mix(in srgb, var(--catalog-reading-ink) 5%, var(--catalog-reading-surface));
-  border-inline-start: 3px solid var(--SmartThemeBorderColor, #555);
+  background-color: var(--catalog-group-surface);
+  border-inline-start: 3px solid var(--catalog-line);
   padding-inline-start: 7px;
 }
 .st-api-manager .catalog-group-heading :is(b, .category-count) {
@@ -197,7 +237,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   dialog.st-api-manager.popup { --st-orb-font-xs: calc(var(--mainFontSize, 15px) * .75); --st-orb-font-sm: calc(var(--mainFontSize, 15px) * .85); --st-orb-spacing-md: 7px; --st-orb-spacing-lg: 8px; --st-orb-spacing-xl: 10px; --st-orb-spacing-2xl: 12px; }
   dialog.st-api-manager.popup { --catalog-dialog-padding: 10px; }
   .st-api-manager .api-manager-toolbar { column-gap: 4px; }
-  .st-api-manager .api-manager-toolbar > .menu_button { font-size: min(13px, var(--st-orb-font-sm)); padding-inline: 3px; }
+  .st-api-manager .api-manager-toolbar > .menu_button { font-size: var(--st-orb-font-sm); padding-inline: 8px; }
 }
 
 :where(.st-api-manager) .st-native-keys-section { display:flex;flex-direction:column;gap:var(--st-orb-spacing-native,6px);margin-top:6px;padding-left:7px;text-align:left !important; }
@@ -228,7 +268,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 :where(.st-api-manager) .parsed-keys-info i { color:var(--SmartThemeSuccessColor,#28a745);font-size:16px;flex-shrink:0; }
 :where(.st-api-manager) .parsed-keys-info .parsed-count { color:var(--SmartThemeSuccessColor,#28a745);font-size:18px;font-weight:700;margin-left:2px; }
 :where(.st-api-manager) .parsed-keys-info .parsed-label { color:color-mix(in srgb,var(--SmartThemeBodyColor) 80%,transparent); }
-:where(.st-api-manager) .st-native-key-item { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:var(--st-orb-spacing-native,7px) var(--st-orb-spacing-md,10px);background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:6px;transition:all .2s ease;text-align:left !important; }
+:where(.st-api-manager) .st-native-key-item { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:var(--st-orb-spacing-native,7px) var(--st-orb-spacing-md,10px);background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:6px;transition:border-color .2s ease;text-align:left !important; }
 :where(.st-api-manager) .st-native-key-item:hover { border-color:var(--SmartThemeQuoteColor);transform:translateX(2px);box-shadow:0 2px 4px color-mix(in srgb,var(--SmartThemeBodyColor) 12%,transparent); }
 :where(.st-api-manager) .st-native-key-item .key-info { flex:1;display:flex;flex-direction:column;gap:4px;min-width:0;text-align:left !important; }
 :where(.st-api-manager) .st-native-key-item .key-mask { font-family:"Consolas","Monaco","Courier New",monospace;font-size:var(--st-orb-font-sm,calc(var(--mainFontSize,15px) * 0.9));color:var(--SmartThemeBodyColor);word-break:break-all;text-align:left !important;line-height:1.4; }
@@ -466,40 +506,11 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 
 :where(.st-api-manager) .toolbar-version { display:inline-flex;align-items:center;flex-shrink:0;min-height:32px;padding:0 10px;border:1px solid color-mix(in srgb,var(--SmartThemeBodyColor) 18%,transparent);border-radius:999px;background:color-mix(in srgb,var(--SmartThemeBodyColor) 6%,transparent);color:var(--catalog-reading-ink);font-size:12px;font-weight:600;line-height:1;letter-spacing:.02em;white-space:nowrap; }
 
-:where(.st-api-manager) .category-popup-modal { display:flex;flex-direction:column;gap:12px; }
-:where(.st-api-manager) .category-popup-hint { font-size:13px;color:color-mix(in srgb,var(--SmartThemeBodyColor) 70%,transparent); }
-:where(.st-api-manager) .category-popup-hint strong { color:var(--SmartThemeBodyColor); }
-:where(.st-api-manager) .category-popup-section { display:flex;flex-direction:column;gap:8px;padding:12px;background:var(--SmartThemeBlurTintColor);border:1px solid var(--SmartThemeBorderColor);border-radius:10px; }
-:where(.st-api-manager) .category-popup-section__header { display:flex;align-items:center;justify-content:space-between;gap:8px; }
-:where(.st-api-manager) .category-popup-section__title { display:inline-flex;align-items:center;gap:8px;min-width:0;font-size:14px;font-weight:600;color:var(--SmartThemeBodyColor); }
-:where(.st-api-manager) .category-popup-section__title i { font-size:12px;color:color-mix(in srgb,var(--SmartThemeBodyColor) 72%,transparent); }
-:where(.st-api-manager) .category-popup-section__button { display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:28px;padding:4px 10px;white-space:nowrap; }
-:where(.st-api-manager) .category-popup-options { display:flex;flex-direction:column;gap:4px;max-height:250px;overflow-y:auto;padding-right:2px; }
-:where(.st-api-manager) .category-popup-option { display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;cursor:pointer;-webkit-user-select:none;user-select:none;border-radius:8px;transition:background-color .15s ease,transform .15s ease; }
-:where(.st-api-manager) .category-popup-option:hover { background:color-mix(in srgb,var(--SmartThemeQuoteColor) 10%,transparent); }
-:where(.st-api-manager) .category-popup-option:active { transform:scale(0.99); }
-:where(.st-api-manager) .category-popup-option input[type=checkbox] { width:16px;height:16px;margin:0;flex-shrink:0;accent-color:var(--SmartThemeQuoteColor); }
-:where(.st-api-manager) .category-popup-option i { width:14px;font-size:13px;text-align:center;color:color-mix(in srgb,var(--SmartThemeBodyColor) 65%,transparent);flex-shrink:0; }
-:where(.st-api-manager) .category-popup-option__count { margin-left:auto;flex-shrink:0;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--SmartThemeBodyColor) 8%,transparent);color:color-mix(in srgb,var(--SmartThemeBodyColor) 68%,transparent);font-size:11px;font-weight:600; }
-:where(.st-api-manager) .category-popup-empty { display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:88px;padding:16px;border:1px dashed color-mix(in srgb,var(--SmartThemeBorderColor) 85%,transparent);border-radius:8px;color:color-mix(in srgb,var(--SmartThemeBodyColor) 60%,transparent);background:color-mix(in srgb,var(--SmartThemeBlurTintColor) 38%,transparent);font-size:13px;text-align:center; }
-:where(.st-api-manager) .category-popup-empty i { font-size:14px; }
-:where(.st-api-manager) .filter-modal { gap:10px; }
-:where(.st-api-manager) .filter-modal__header { display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%; }
-:where(.st-api-manager) .filter-modal__title { margin:0;font-size:16px;font-weight:700;color:var(--SmartThemeBodyColor);white-space:nowrap; }
-:where(.st-api-manager) .category-popup-header { display:flex;align-items:center;justify-content:space-between;gap:8px; }
-:where(.st-api-manager) .category-popup-title { display:inline-flex;align-items:center;gap:8px;min-width:0;font-size:14px;font-weight:600;color:var(--SmartThemeBodyColor); }
-:where(.st-api-manager) .category-popup-title i { font-size:12px;color:color-mix(in srgb,var(--SmartThemeBodyColor) 72%,transparent); }
-:where(.st-api-manager) .category-popup-button { display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-height:28px;padding:4px 10px;white-space:nowrap; }
 :where(.st-api-manager) .filter-clear-button { gap:6px;min-height:32px;padding:6px 12px; }
-:where(.st-api-manager) .filter-group-block { display:flex;flex-direction:column;gap:4px; }
-:where(.st-api-manager) .filter-close-button { min-width:96px; }
-:where(.st-api-manager) .filter-option-item { width:100%; }
 :where(.st-api-manager) .category-color-dot { width:10px;height:10px;flex-shrink:0;border-radius:999px;box-shadow:0 0 0 1px rgba(0,0,0,.1),inset 0 1px 2px hsla(0,0%,100%,.2); }
 
-:where(.st-api-manager) .filter-wrapper { position:relative; }
-:where(.st-api-manager) .filter-badge { display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 var(--st-orb-spacing-xs);margin-left:var(--st-orb-spacing-xs);font-size:var(--st-orb-font-xs);font-weight:600;color:var(--st-orb-text-contrast);background:var(--st-orb-primary);border-radius:9px; }
 
-:where(.st-api-manager) .api-manager-toolbar { display:flex;align-items:center;flex-wrap:wrap;gap:var(--st-orb-spacing-sm);padding-top:var(--st-orb-spacing-xs);padding-bottom:var(--st-orb-spacing-md);border-bottom:1px solid var(--SmartThemeBorderColor); }
+:where(.st-api-manager) .api-manager-toolbar { display:flex;align-items:center;flex-wrap:nowrap;gap:var(--st-orb-spacing-sm);padding-bottom:var(--st-orb-spacing-md);border-bottom:1px solid var(--catalog-line); }
 :where(.st-api-manager) .api-manager-toolbar--inline { margin-bottom:var(--st-orb-spacing-sm); }
 
 :where(.st-api-manager) .set-category-modal { display:flex;flex-direction:column;gap:12px; }
@@ -542,7 +553,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 :where(.st-api-manager) .color-picker:focus { outline:none;border-color:var(--SmartThemeQuoteColor); }
 
 :where(.st-api-manager) .secretKeyManagerList { display: flex;   flex-direction: column;   text-align: left;   gap: 5px;   flex: 1;   overflow: visible;   max-height: none; }
-:where(.st-api-manager) .secretKeyManagerItem { border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 18%, transparent) !important;   padding: 5px 10px 5px 12px;   border-radius: 10px;   background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 92%, var(--SmartThemeBodyColor)) !important;   color: var(--SmartThemeBodyColor) !important;   display: flex;   flex-direction: row;   align-items: center;   position: relative;   overflow: hidden;   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
+:where(.st-api-manager) .secretKeyManagerItem { border: 1px solid color-mix(in srgb, var(--SmartThemeBodyColor) 18%, transparent) !important;   padding: 5px 10px 5px 12px;   border-radius: 10px;   background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 92%, var(--SmartThemeBodyColor)) !important;   color: var(--SmartThemeBodyColor) !important;   display: flex;   flex-direction: row;   align-items: center;   position: relative;   overflow: hidden;   transition: border-color 0.2s ease, box-shadow 0.2s ease; }
 :where(.st-api-manager) .secretKeyManagerItem--selected { border-color: color-mix(in srgb, var(--SmartThemeQuoteColor) 42%, transparent) !important;   background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 86%, var(--SmartThemeQuoteColor)) !important;   color: var(--SmartThemeBodyColor) !important; }
 .st-api-manager .catalog-config-card {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-items: stretch; padding: 6px 8px;
@@ -646,7 +657,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-entry-options label { display:flex; align-items:center; gap:8px; }
 .st-api-manager .catalog-entry-options p { margin:0; }
 
-/* Compact cards inherit host colors in both everyday and sorting modes. */
+/* Compact cards use the local appearance in everyday and sorting modes. */
 .st-api-manager .catalog-config-card .catalog-card-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
 .st-api-manager .catalog-config-card .catalog-card-site { flex: 0 1 auto; }
 .st-api-manager .catalog-config-card .catalog-card-alias { grid-column: 1 / -1; }
@@ -693,3 +704,155 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 }
 .st-api-manager .catalog-fill-summary { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .st-api-manager .catalog-fill-row > button { margin: 0; min-height: 32px; }
+
+/* Host theme rules often use !important. Keep the overrides on owned dialogs. */
+dialog.st-api-manager.popup.st-api-manager-native-dialog {
+  /* Readable foregrounds and their surfaces switch together. */
+  transition-property: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .menu_button {
+  color: var(--catalog-reading-ink) !important;
+  background-color: var(--catalog-control-surface) !important;
+  border-color: transparent !important;
+  border-radius: 6px !important;
+  transition-property: border-color !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .menu_button:is(.catalog-toolbar-primary, .active, .selected, .category-tag--selected, [aria-pressed="true"]) {
+  background-color: var(--catalog-control-selected) !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .menu_button:hover:not(:disabled) {
+  background-color: var(--catalog-control-hover) !important;
+  transform: none;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog :is(.menu_button, .catalog-group-heading) > i {
+  color: var(--catalog-control-ink) !important;
+  text-shadow: none !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .api-manager-toolbar > .menu_button {
+  flex: 0 1 auto;
+  min-width: 0;
+  background-color: var(--catalog-reading-surface) !important;
+  font-weight: 600;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .api-manager-toolbar > .catalog-toolbar-primary {
+  background-color: var(--catalog-control-selected) !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .api-manager-toolbar > .menu_button:hover:not(:disabled) {
+  background-color: var(--catalog-control-hover) !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog summary.catalog-group-heading {
+  min-height: 42px;
+  background-color: var(--catalog-group-surface) !important;
+  border: 0 !important;
+  border-inline-start: 3px solid var(--catalog-line) !important;
+  border-radius: 5px !important;
+  margin-block: 0 !important;
+  padding: 4px 8px !important;
+  transition-property: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-config-card:not(.secretKeyManagerItem--applied):not(.secretKeyManagerItem--selected) {
+  background: var(--catalog-card-surface) !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog :is(.text_pole, select, input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"])),
+dialog.st-api-manager.popup.st-api-manager-native-dialog textarea:not(#send_textarea):not(#curEditTextarea) {
+  background-color: var(--catalog-field-surface) !important;
+  border-color: var(--catalog-line) !important;
+  color: var(--catalog-reading-ink) !important;
+  caret-color: var(--catalog-accent);
+  border-radius: 5px !important;
+  transition-property: border-color !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.st-api-manager :is(input, textarea)::placeholder { color: var(--catalog-muted-ink); opacity: 1; }
+dialog.st-api-manager.popup :is(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  accent-color: var(--catalog-accent) !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog :is(button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--catalog-accent) !important;
+  outline-offset: 1px;
+}
+.st-api-manager ::selection { color: var(--catalog-reading-ink); background: var(--catalog-control-selected); }
+
+.st-api-manager .catalog-settings-list { display: grid; }
+dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-settings-entry {
+  display: grid;
+  grid-template-columns: 1.2em minmax(0, 1fr) .8em;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  margin: 0;
+  padding: 9px 10px;
+  text-align: start;
+  border: 0 !important;
+  border-radius: 0 !important;
+  border-block-end: 1px solid var(--catalog-line) !important;
+  background-color: var(--catalog-card-surface) !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-settings-entry:first-child { border-radius: 6px 6px 0 0 !important; }
+dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-settings-entry:last-child {
+  border-block-end: 0 !important;
+  border-radius: 0 0 6px 6px !important;
+}
+.st-api-manager .catalog-settings-entry-copy { display: grid; min-width: 0; gap: 2px; }
+.st-api-manager .catalog-settings-entry-label { font-weight: 650; }
+.st-api-manager .catalog-settings-entry-description {
+  color: var(--catalog-muted-ink);
+  font-size: var(--st-orb-font-sm);
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.st-api-manager .catalog-settings-entry-chevron { justify-self: end; font-size: var(--st-orb-font-sm); }
+
+.st-api-manager .catalog-theme-settings { display: grid; gap: 14px; }
+.st-api-manager .catalog-theme-follow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--catalog-card-surface);
+  cursor: pointer;
+}
+.st-api-manager .catalog-theme-follow input { width: 1.15em; height: 1.15em; margin: 0; }
+.st-api-manager .catalog-theme-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.st-api-manager .catalog-theme-mode legend { margin-block-end: 5px; padding: 0; color: var(--catalog-muted-ink); }
+.st-api-manager .catalog-theme-mode-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--catalog-control-surface);
+  cursor: pointer;
+}
+.st-api-manager .catalog-theme-mode-option:has(input:checked) { background: var(--catalog-control-selected); }
+.st-api-manager .catalog-theme-mode-option:has(input:disabled) { cursor: default; color: var(--catalog-muted-ink); }
+.st-api-manager .catalog-theme-mode-option input { margin: 0; }
+.st-api-manager .catalog-theme-opacity { display: grid; gap: 2px; }
+.st-api-manager .catalog-theme-opacity[hidden] { display: none !important; }
+.st-api-manager .catalog-theme-opacity-header { display: flex; justify-content: space-between; gap: 8px; }
+.st-api-manager .catalog-theme-opacity-value { color: var(--catalog-muted-ink); font-variant-numeric: tabular-nums; }
+.st-api-manager .catalog-theme-opacity input[type="range"] { inline-size: 100%; min-height: 44px; margin: 0; }
+.st-api-manager .catalog-theme-hint { color: var(--catalog-muted-ink); margin: 0; line-height: 1.45; font-size: var(--st-orb-font-sm); }
