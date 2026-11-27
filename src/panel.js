@@ -77,7 +77,18 @@ function mountCatalogPanel(host, storage, connection) {
     doc.body.append(dialog);
     return {
       dialog, heading, scroll, footer, status,
-      open() { dialog.showModal(); },
+      open() {
+        // Older WebViews serialize translucent theme colors as rgba().
+        dialog.style.removeProperty('--catalog-reading-surface');
+        dialog.style.removeProperty('--SmartThemeBodyColor');
+        const { backgroundColor, color } = (doc.defaultView ?? host).getComputedStyle(dialog);
+        const opaqueRgb = value => value.replace(/^rgba\(([^,]+, [^,]+, [^,]+), [^)]+\)$/, 'rgb($1)');
+        if (opaqueRgb(backgroundColor) !== backgroundColor) {
+          dialog.style.setProperty('--catalog-reading-surface', opaqueRgb(backgroundColor));
+        }
+        if (opaqueRgb(color) !== color) dialog.style.setProperty('--SmartThemeBodyColor', opaqueRgb(color));
+        dialog.showModal();
+      },
     };
   }
   async function run(pane, action, success, done) {
@@ -461,11 +472,13 @@ function mountCatalogPanel(host, storage, connection) {
       drawer.open = !collapsed.has(section.id);
       // Native details owns the state. The host delegates .inline-drawer-toggle
       // and would independently hide the same content with inline styles.
-      const header = make('summary', 'inline-drawer-header');
+      const header = make('summary', 'inline-drawer-header catalog-group-heading');
       const label = make('span', 'flex-container alignItemsCenter');
       const name = make('b', '', section.name);
-      if (!isUnassigned) name.style.color = groupColor(section);
-      if (section.icon) label.append(groupMarker(section));
+      if (!isUnassigned) {
+        header.style.setProperty('--catalog-group-accent', groupColor(section));
+        label.append(groupMarker(section));
+      }
       label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
       const arrow = icon(drawer.open ? 'circle-chevron-up' : 'circle-chevron-down');
       arrow.classList.add('inline-drawer-icon');
@@ -1079,10 +1092,12 @@ function mountCatalogPanel(host, storage, connection) {
         if (!rows.length) continue;
         const section = make('details', 'catalog-fill-group');
         section.open = terms.length > 0 || !pickerCollapsed.has(group.id);
-        const header = make('summary', 'catalog-fill-group-header');
+        const header = make('summary', 'catalog-fill-group-header catalog-group-heading');
         const title = make('b', 'catalog-fill-group-name', group.name);
-        if (group.id !== unassigned) title.style.color = groupColor(group);
-        if (group.icon) header.append(groupMarker(group));
+        if (group.id !== unassigned) {
+          header.style.setProperty('--catalog-group-accent', groupColor(group));
+          header.append(groupMarker(group));
+        }
         const arrow = icon('chevron-right');
         arrow.classList.add('catalog-fill-group-arrow');
         header.append(title, make('small', 'category-count', '(' + rows.length + ')'), arrow);

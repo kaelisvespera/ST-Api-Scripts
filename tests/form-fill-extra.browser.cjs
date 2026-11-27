@@ -26,7 +26,8 @@ async function prepare({ tab, open, stores, origin }, style, extra) {
   }));
   await open();
   await button(dialog(tab, 'API 管理器'), '关闭').click();
-  await tab.evaluate(style => {
+  const modelId = style === 'seven-days' ? 'sp-api-editor-model' : style === 'two-more' ? 'api-editor-model' : 'fixture-model';
+  await tab.evaluate(({ style, modelId }) => {
     const host = document.createElement('div');
     host.id = 'fixture-extra-fill';
     document.body.append(host);
@@ -46,11 +47,16 @@ async function prepare({ tab, open, stores, origin }, style, extra) {
       advanced = '<details><summary>接口高级选项</summary><label>剔除参数（换行或逗号分隔）' + exclusions +
         '</label><label>附加参数（JSON）' + bodyField + '</label></details>';
     }
+    const model = '<input id="' + modelId + '" value="old model">';
+    const modelField = style === 'yaml' ? '<div><span>模型 ID</span>' + model + '</div>' :
+      '<label><span>模型</span><div>' + model + '<button type="button">拉取模型</button></div></label>' +
+      '<details open><summary>已加载模型</summary><input type="search" aria-label="搜索模型" value="keep search"></details>';
+    const labels = style === 'seven-days' ? ['URL', 'Key'] : style === 'two-more' ? ['接口地址', '密钥'] : ['API 地址', 'API Key'];
     wrapper.innerHTML = '<section role="dialog" aria-label="新增 API"><form class="' +
       (style === 'two-more' ? 'api-editor-form' : 'fixture-form') + '">' +
-      '<label>API 地址<input id="fixture-url" type="url" value="https://previous.invalid/v1"></label>' +
-      '<label>API Key<input id="fixture-key" type="password" value="fixture-old-key"></label>' +
-      (style === 'yaml' ? '<div><span>模型 ID</span><input id="fixture-model" value="old model"></div>' : '') + advanced +
+      '<label>' + labels[0] + '<input id="fixture-url" type="url" value="https://previous.invalid/v1"></label>' +
+      '<label>' + labels[1] + '<input id="fixture-key" type="password" value="fixture-old-key"></label>' +
+      modelField + advanced +
       '<label>请求头<textarea id="fixture-header">keep headers</textarea></label>' +
       '<button type="button">保存</button></form></section>';
     const form = wrapper.querySelector('form');
@@ -59,26 +65,29 @@ async function prepare({ tab, open, stores, origin }, style, extra) {
       window.advancedEvents.push({
         id: e.target.id, event,
         url: wrapper.querySelector('#fixture-url').value,
-        model: wrapper.querySelector('#fixture-model')?.value,
+        key: wrapper.querySelector('#fixture-key').value,
+        model: wrapper.getElementById(modelId).value,
         body: wrapper.querySelector('#api-editor-additional').value,
         exclude: wrapper.querySelector('#api-editor-exclude').value,
+        headers: wrapper.querySelector('#fixture-header').value,
       });
     });
-    wrapper.querySelector('button').focus();
-  }, style);
+    form.lastElementChild.focus();
+  }, { style, modelId });
   const plugin = tab.locator('#fixture-extra-fill');
   await plugin.locator('#fixture-url').click();
   await button(plugin, '填入 API').click();
-  return { plugin, picker: dialog(tab, '填入插件 API'), row };
+  return { plugin, picker: dialog(tab, '填入插件 API'), row, modelId };
 }
 
-for (const [mode, style] of [['st', 'seven-days'], ['tt', 'two-more'], ['tt', 'yaml']]) {
-  test(mode + ' ' + style + ': a profile supplies advanced values in the target format', {
+for (const [mode, style] of [['st', 'seven-days'], ['st', 'yaml'], ['tt', 'two-more'], ['tt', 'yaml']]) {
+  test(mode + ' ' + style + ': URL, Key, model, and advanced values reach the target form together', {
     timeout: 30000,
   }, () => withBrowser(mode, async fixture => {
     const { tab, assertConnection } = fixture;
     const extra = { includeBody: yamlBody, excludeBody: yamlExclude, includeHeaders: 'X-Fixture: header-only' };
-    const { plugin, picker, row } = await prepare(fixture, style, extra);
+    const { plugin, picker, row, modelId } = await prepare(fixture, style, extra);
+    await picker.getByText(/模型名也会一并填入/).waitFor();
     await picker.getByText(/一并填入.*主体附加参数.*排除参数/).waitFor();
     await picker.getByText(/本表单无法填入.*请求标头/).waitFor();
     await button(picker, /填入.*附加参数示例/).click();
@@ -88,32 +97,39 @@ for (const [mode, style] of [['st', 'seven-days'], ['tt', 'two-more'], ['tt', 'y
     if (style === 'yaml') {
       assert.equal(body, yamlBody);
       assert.equal(exclude, yamlExclude);
-      assert.equal(await plugin.locator('#fixture-model').inputValue(), row.model);
       assert.equal(await plugin.locator('#fixture-unrelated').inputValue(), 'keep prompt');
     } else {
       assert.deepEqual(JSON.parse(body), expectedBody);
       assert.equal(exclude, 'frequency_penalty\npresence_penalty');
+      assert.equal(await plugin.getByRole('searchbox', { name: '搜索模型' }).inputValue(), 'keep search');
     }
+    assert.equal(await plugin.locator('#fixture-url').inputValue(), row.url);
     assert.equal(await plugin.locator('#fixture-key').inputValue(), row.key);
+    assert.equal(await plugin.locator('#' + modelId).inputValue(), row.model);
     assert.equal(await plugin.locator('#fixture-header').inputValue(), 'keep headers');
     const events = await tab.evaluate(() => window.advancedEvents);
-    assert.equal(events.length, style === 'yaml' ? 10 : 8);
-    if (style === 'yaml') assert.ok(events.every(event => event.model === row.model));
-    assert.ok(events.every(event => event.url === row.url && event.body === body && event.exclude === exclude));
-    assert.ok(events.some(event => event.id === 'api-editor-additional' && event.event === 'input'));
+    const expectedEvents = ['fixture-url', 'fixture-key', modelId, 'api-editor-additional', 'api-editor-exclude']
+      .flatMap(id => ['input', 'change'].map(type => `${id}:${type}`));
+    assert.deepEqual(events.map(({ id, event }) => `${id}:${event}`).sort(), expectedEvents.sort());
+    for (const { id, event, ...values } of events) {
+      assert.deepEqual(values, {
+        url: row.url, key: row.key, model: row.model, body, exclude, headers: 'keep headers',
+      }, `${id}:${event}`);
+    }
     assert.ok(await plugin.locator(style === 'two-more' ? '.api-editor-advanced-body[hidden]' : 'details:not([open])').count());
     await assertConnection();
   }));
 }
 
-test('an incompatible body rejects the entire write, including URL and Key', { timeout: 30000 }, () =>
+test('an incompatible body rejects the entire write, including URL, Key, and model', { timeout: 30000 }, () =>
   withBrowser('st', async fixture => {
     const { tab } = fixture;
-    const { plugin, picker } = await prepare(fixture, 'seven-days', { includeBody: '{"model":"reserved"}' });
+    const { plugin, picker, modelId } = await prepare(fixture, 'seven-days', { includeBody: '{"model":"reserved"}' });
     await button(picker, /填入.*附加参数示例/).click();
     await picker.getByText(/插件保留字段/).waitFor();
     assert.equal(await plugin.locator('#fixture-url').inputValue(), 'https://previous.invalid/v1');
     assert.equal(await plugin.locator('#fixture-key').inputValue(), 'fixture-old-key');
+    assert.equal(await plugin.locator('#' + modelId).inputValue(), 'old model');
     assert.equal(await plugin.locator('#api-editor-additional').inputValue(), 'previous body');
     assert.deepEqual(await tab.evaluate(() => window.advancedEvents), []);
   }));
@@ -123,12 +139,15 @@ for (const [label, extra] of [['no extra settings', undefined], ['headers only',
     timeout: 30000,
   }, () => withBrowser('st', async fixture => {
     const { tab } = fixture;
-    const { plugin, picker, row } = await prepare(fixture, 'seven-days', extra);
+    const { plugin, picker, row, modelId } = await prepare(fixture, 'seven-days', extra);
     await button(picker, /填入.*附加参数示例/).click();
     await picker.waitFor({ state: 'hidden' });
     assert.equal(await plugin.locator('#api-editor-additional').inputValue(), 'previous body');
     assert.equal(await plugin.locator('#api-editor-exclude').inputValue(), 'previous exclude');
     assert.equal(await plugin.locator('#fixture-url').inputValue(), row.url);
-    assert.equal(await tab.evaluate(() => window.advancedEvents.length), 4);
+    assert.equal(await plugin.locator('#fixture-key').inputValue(), row.key);
+    assert.equal(await plugin.locator('#' + modelId).inputValue(), row.model);
+    assert.equal(await plugin.locator('#fixture-header').inputValue(), 'keep headers');
+    assert.equal(await tab.evaluate(() => window.advancedEvents.length), 6);
   }));
 }
