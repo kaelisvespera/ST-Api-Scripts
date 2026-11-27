@@ -109,7 +109,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   color: var(--catalog-reading-ink); text-shadow: none;
   background-color: var(--catalog-reading-surface);
   background: color-mix(in srgb, var(--catalog-reading-ink) 5%, var(--catalog-reading-surface));
-  border-inline-start: 3px solid var(--catalog-group-accent, var(--SmartThemeBorderColor, #555));
+  border-inline-start: 3px solid var(--SmartThemeBorderColor, #555);
   padding-inline-start: 7px;
 }
 .st-api-manager .catalog-group-heading :is(b, .category-count) {

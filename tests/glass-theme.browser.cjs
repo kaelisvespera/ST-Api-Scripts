@@ -62,6 +62,8 @@ async function assertYellowGroup(pane, groupHeader) {
   const heading = pane.locator(groupHeader).filter({ hasText: tagName });
   await assertLegible(heading.getByText(tagName, { exact: true }), 'tag name');
   await assertLegible(heading.getByText('(1)', { exact: true }), 'configuration count');
+  const stripe = await heading.evaluate(element => getComputedStyle(element).borderInlineStartColor);
+  assert.equal(stripe, 'rgb(255, 255, 0)');
   const marker = heading.locator('.category-color-dot');
   assert.equal(await marker.evaluate(element => getComputedStyle(element).backgroundColor), 'rgb(255, 255, 0)');
 }
@@ -88,6 +90,8 @@ for (const mode of ['st', 'tt']) for (const [theme, values] of Object.entries(th
           --SmartThemeShadowColor: rgba(255, 255, 255, .75); }
         body { background: ${values.wallpaper}; }
         .popup { backdrop-filter: blur(9px); }
+        html body :is(dialog.popup:not(#loader), #other-popup) { background: var(--SmartThemeBlurTintColor) !important; }
+        html body .inline-drawer-header:not(.world_entry *):not(:empty) { border-left: 3px solid #294b71 !important; }
         .menu_button, .text_pole { background: var(--SmartThemeBlurTintColor); }
       ` });
       await tab.evaluate(() => {

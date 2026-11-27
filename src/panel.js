@@ -34,6 +34,8 @@ function mountCatalogPanel(host, storage, connection) {
   let busy = false;
   function popup(title, size = 'medium', main = false) {
     const dialog = make('dialog', 'st-api-manager popup popup_type textAlignJustify st-orb-popup st-api-manager-native-dialog st-api-manager-native-dialog--' + size);
+    // Host themes can set the generic popup background with !important.
+    dialog.style.setProperty('background-color', 'var(--catalog-reading-surface)', 'important');
     dialog.setAttribute('aria-label', title);
     if (!main) dialog.dataset.nested = '';
     const frame = make('div', 'popup-body');
@@ -476,7 +478,7 @@ function mountCatalogPanel(host, storage, connection) {
       const label = make('span', 'flex-container alignItemsCenter');
       const name = make('b', '', section.name);
       if (!isUnassigned) {
-        header.style.setProperty('--catalog-group-accent', groupColor(section));
+        header.style.setProperty('border-inline-start-color', groupColor(section), 'important');
         label.append(groupMarker(section));
       }
       label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
@@ -1095,7 +1097,7 @@ function mountCatalogPanel(host, storage, connection) {
         const header = make('summary', 'catalog-fill-group-header catalog-group-heading');
         const title = make('b', 'catalog-fill-group-name', group.name);
         if (group.id !== unassigned) {
-          header.style.setProperty('--catalog-group-accent', groupColor(group));
+          header.style.setProperty('border-inline-start-color', groupColor(group), 'important');
           header.append(groupMarker(group));
         }
         const arrow = icon('chevron-right');
