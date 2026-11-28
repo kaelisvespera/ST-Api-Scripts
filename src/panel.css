@@ -14,6 +14,8 @@ dialog.st-api-manager.popup {
   --catalog-control-selected: #c9b9a6;
   --catalog-line: #b9ac9d;
   --catalog-accent: #775940;
+  --catalog-applied-accent: #126347;
+  --catalog-applied-badge-ink: #f2fff7;
   --st-orb-success: #4b6758;
   --st-orb-danger: #8d4d4b;
   --st-orb-warning: #805a34;
@@ -84,6 +86,8 @@ dialog.st-api-manager.popup[data-catalog-theme="dark"] {
   --catalog-control-selected: #544c51;
   --catalog-line: #575159;
   --catalog-accent: #c6a98e;
+  --catalog-applied-accent: #88dfab;
+  --catalog-applied-badge-ink: #13261b;
   --st-orb-success: #a0beac;
   --st-orb-danger: #d6a29e;
   --st-orb-warning: #d0b381;
@@ -244,11 +248,10 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .st-native-key-item .key-info input { width: 100%; }
 .st-api-manager .catalog-key-selected { border-color: var(--st-orb-primary); }
 .st-api-manager .active-badge-sm {
-  padding: 2px 6px; background-color: #36594b; color: #f5fbf7;
-  border-radius: 4px; font-size: 10px; font-weight: 600;
-}
-.st-api-manager[data-catalog-theme="dark"] .active-badge-sm {
-  outline: 1px solid var(--st-orb-success); outline-offset: -1px;
+  display: inline-flex; align-items: center; gap: 4px; min-height: 24px;
+  padding: 2px 8px; border-radius: 5px; white-space: nowrap;
+  background-color: var(--catalog-applied-accent); color: var(--catalog-applied-badge-ink);
+  font-size: max(13px, var(--st-orb-font-sm)); font-weight: 700; line-height: 1.2;
 }
 @media (max-width: 480px) {
   dialog.st-api-manager.popup { --st-orb-font-xs: calc(var(--mainFontSize, 15px) * .75); --st-orb-font-sm: calc(var(--mainFontSize, 15px) * .85); --st-orb-spacing-md: 7px; --st-orb-spacing-lg: 8px; --st-orb-spacing-xl: 10px; --st-orb-spacing-2xl: 12px; }
@@ -653,10 +656,6 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .key-add-row .key-add-input { max-width: 420px; }
 .st-api-manager .api-config-edit-modal__keys-list:empty { display: none; }
 .st-api-manager .st-native-test-result { margin: 6px 0; padding: 8px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 6px; }
-.st-api-manager .secretKeyManagerItem--applied {
-  border-color: color-mix(in srgb, var(--st-orb-success) 40%, transparent) !important;
-  background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 90%, var(--st-orb-success)) !important;
-}
 @media (max-width: 640px) {
   .st-api-manager .key-add-row .key-add-input { max-width: 300px; }
 }
@@ -782,6 +781,16 @@ dialog.st-api-manager.popup.st-api-manager-native-dialog summary.catalog-group-h
 }
 dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-config-card:not(.secretKeyManagerItem--applied):not(.secretKeyManagerItem--selected) {
   background: var(--catalog-card-surface) !important;
+}
+dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-config-card.secretKeyManagerItem--applied {
+  border-color: var(--catalog-applied-accent) !important;
+  outline: 2px solid var(--catalog-applied-accent); outline-offset: -2px;
+  background: var(--catalog-card-surface) !important;
+  background: color-mix(in srgb, var(--catalog-card-surface) 87%, var(--catalog-applied-accent)) !important;
+}
+.st-api-manager .catalog-config-card.secretKeyManagerItem--applied::before {
+  content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; inline-size: 4px;
+  background-color: var(--catalog-applied-accent); pointer-events: none;
 }
 dialog.st-api-manager.popup.st-api-manager-native-dialog :is(.text_pole, select, input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"])),
 dialog.st-api-manager.popup.st-api-manager-native-dialog textarea:not(#send_textarea):not(#curEditTextarea) {

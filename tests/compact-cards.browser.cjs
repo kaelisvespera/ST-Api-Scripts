@@ -81,6 +81,89 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
   await toggle.press('Space');
   assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
   assert.equal(await toggle.evaluate(button => button === document.activeElement), true);
+
+  const activeSelector = '.catalog-config-card.secretKeyManagerItem--applied';
+  const checkHighlight = async (theme, followsHost) => {
+    const accent = theme === 'light' ? [18, 99, 71, 255] : [136, 223, 171, 255];
+    await tab.waitForFunction(({ theme, followsHost }) => {
+      const dialog = document.querySelector('dialog.st-api-manager[open]');
+      return dialog?.dataset.catalogTheme === theme && dialog.dataset.catalogFollowHost === String(followsHost);
+    }, { theme, followsHost });
+    const colors = await multilineCard.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => {})));
+      const badge = element.querySelector('.active-badge-sm');
+      const cardStyle = getComputedStyle(element);
+      const badgeStyle = getComputedStyle(badge);
+      const stripe = getComputedStyle(element, '::before');
+      const context = document.createElement('canvas').getContext('2d');
+      const rgba = color => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return [...context.getImageData(0, 0, 1, 1).data];
+      };
+      const luminance = ([red, green, blue]) => {
+        const linear = channel => {
+          const s = channel / 255;
+          return s <= .04045 ? s / 12.92 : ((s + .055) / 1.055) ** 2.4;
+        };
+        return .2126 * linear(red) + .7152 * linear(green) + .0722 * linear(blue);
+      };
+      const ratio = (a, b) => {
+        const x = luminance(a), y = luminance(b);
+        return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+      };
+      const fill = rgba(cardStyle.backgroundColor);
+      const ordinaryFill = rgba(getComputedStyle(element.previousElementSibling).backgroundColor);
+      const stripeColor = rgba(stripe.backgroundColor);
+      const badgeFill = rgba(badgeStyle.backgroundColor);
+      return {
+        fill, ordinaryFill, stripeColor, badgeFill,
+        badgeSize: parseFloat(badgeStyle.fontSize),
+        stroke: rgba(cardStyle.borderInlineStartColor), outline: rgba(cardStyle.outlineColor),
+        outlineWidth: cardStyle.outlineWidth, outlineOffset: cardStyle.outlineOffset,
+        stripeWidth: stripe.inlineSize, pointerEvents: stripe.pointerEvents,
+        textContrast: ratio(rgba(badgeStyle.color), badgeFill),
+        cardTextContrast: ratio(rgba(cardStyle.color), fill),
+        stripeContrast: Math.min(ratio(stripeColor, fill), ratio(stripeColor, ordinaryFill)),
+        fits: element.scrollWidth <= element.clientWidth,
+      };
+    });
+    assert.deepEqual([colors.badgeFill, colors.stroke, colors.outline, colors.stripeColor], Array(4).fill(accent));
+    assert.deepEqual([colors.outlineWidth, colors.outlineOffset, colors.stripeWidth, colors.pointerEvents],
+      ['2px', '-2px', '4px', 'none']);
+    assert.notDeepEqual(colors.fill, colors.ordinaryFill);
+    assert.ok(colors.badgeSize >= 13 && colors.textContrast >= 4.5 && colors.cardTextContrast >= 4.5
+      && colors.stripeContrast >= 3 && colors.fits, JSON.stringify(colors));
+  };
+
+  assert.equal(await badge.locator('.fa-check[aria-hidden="true"]').count(), 1);
+  assert.equal(await main.locator(activeSelector).count(), 1);
+  await tab.setViewportSize({ width: mode === 'st' ? 320 : 390, height: 820 });
+  for (const [theme, ink, tint] of [['light', '#182631', '#edf1f4'], ['dark', '#f0e9df', '#252931']]) {
+    await tab.evaluate(([ink, tint]) => {
+      document.documentElement.style.setProperty('--SmartThemeBodyColor', ink);
+      document.documentElement.style.setProperty('--SmartThemeBlurTintColor', tint);
+    }, [ink, tint]);
+    await checkHighlight(theme, true);
+  }
+
+  await main.getByRole('button', { name: '设置', exact: true }).click();
+  const settings = tab.getByRole('dialog', { name: '设置', exact: true });
+  await settings.getByRole('button', { name: '主题设置', exact: true }).click();
+  const appearance = tab.getByRole('dialog', { name: '主题设置', exact: true });
+  await appearance.getByLabel('跟随 ST/TT 主题', { exact: true }).press('Space');
+  await checkHighlight('light', false);
+  await appearance.getByText('夜间', { exact: true }).click();
+  await checkHighlight('dark', false);
+  await appearance.getByRole('button', { name: '关闭', exact: true }).click();
+  await settings.getByRole('button', { name: '关闭', exact: true }).click();
+
+  await card.getByRole('button', { name: '应用', exact: true }).click();
+  await card.getByText('已应用', { exact: true }).waitFor();
+  assert.equal(await multilineCard.locator('.active-badge-sm').count(), 0);
+  assert.equal(await main.locator(activeSelector).count(), 1);
+  assert.equal(await main.locator(activeSelector).getAttribute('data-entry-id'), 'row1');
 }));
 
 for (const mode of ['st','tt']) test(mode+': five actions, expandable text and host themes fit narrow screens', {timeout:60000},()=>withBrowser(mode,async({tab,open,stores,origin,assertConnection,flush})=>{

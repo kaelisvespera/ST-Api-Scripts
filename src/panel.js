@@ -390,7 +390,9 @@ function mountCatalogPanel(host, storage, connection) {
     const meta = rowMetadata(row, presentation, false);
     if (connection.activeRowId() === row.id) {
       card.classList.add('secretKeyManagerItem--applied');
-      meta.append(make('span', 'active-badge-sm', '已应用'));
+      const badge = make('span', 'active-badge-sm');
+      badge.append(icon('check'), '已应用');
+      meta.append(badge);
     }
     information.append(meta);
     const notes = rowFields('catalog-card-notes', [['密钥备注', keyNote], ['模型备注', row.modelNote]]);
