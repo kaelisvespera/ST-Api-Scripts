@@ -184,11 +184,17 @@ function mountCatalogPanel(host, storage, connection) {
     heading.append(rail);
   }
   function groupMarker(group) {
-    const iconName = group.icon;
-    const marker = isGroupIcon(iconName)
-      ? make('span', 'catalog-tag-icon catalog-tag-icon--' + iconName)
+    const iconName = isGroupIcon(group.icon) ? group.icon : undefined;
+    const image = iconName && catalogTagIconImages[iconName];
+    const marker = iconName
+      ? make(image ? 'img' : 'span', 'catalog-tag-icon catalog-tag-icon--' + iconName)
       : make('span', 'category-color-dot');
-    if (marker.classList.contains('category-color-dot')) marker.style.backgroundColor = groupColor(group);
+    if (image) {
+      marker.src = image;
+      marker.alt = '';
+    } else if (!iconName) {
+      marker.style.backgroundColor = groupColor(group);
+    }
     marker.setAttribute('aria-hidden', 'true');
     return marker;
   }
@@ -215,7 +221,7 @@ function mountCatalogPanel(host, storage, connection) {
     field.append(make('legend', '', '标签图标'));
     const choices = make('div', 'catalog-tag-icon-choices');
     const radios = [];
-    for (const [value, label] of [['', '色点'], ['claude', 'Claude'], ['gemini', 'Gemini'], ['deepseek', 'DeepSeek']]) {
+    for (const [value, label] of [['', '色点'], ...groupIconNames]) {
       const option = make('label', 'catalog-tag-icon-choice');
       const input = make('input');
       input.type = 'radio';

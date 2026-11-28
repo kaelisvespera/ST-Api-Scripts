@@ -4,8 +4,16 @@ const root = path.resolve(__dirname, '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 const { version } = JSON.parse(read('manifest.json'));
 const sources = ['catalog.js', 'storage.js', 'extra-parameters.js', 'connection.js', 'form-fill.js', 'panel-editor.js', 'panel-theme.js', 'panel.js', 'entry-points.js', 'bootstrap.js'];
+const tagIconFiles = ['doubao.png', 'gpt.png', 'grok.png', 'qwen.svg'];
+const tagIconImages = Object.fromEntries(tagIconFiles.map(file => {
+  const { name, ext } = path.parse(file);
+  const type = ext === '.svg' ? 'image/svg+xml' : 'image/png';
+  const bytes = fs.readFileSync(path.join(root, 'assets/group-icons', file));
+  return [name, 'data:' + type + ';base64,' + bytes.toString('base64')];
+}));
 const shared = 'const catalogPanelVersion = ' + JSON.stringify(version) + ';\n'
   + 'const catalogPanelCss = ' + JSON.stringify(read('src/panel.css')) + ';\n'
+  + 'const catalogTagIconImages = ' + JSON.stringify(tagIconImages) + ';\n'
   + sources.map(file => read('src/' + file)).join('\n');
 function build(file, host) {
   const entry = 'const manager = await startCatalogManager(' + host + ', window.localStorage);\n'

@@ -134,10 +134,12 @@ test('catalog round trip keeps tag colors and supported icons and ignores an unk
     { id: 'b', name: 'Gemini 标签', color: '#345678', icon: 'gemini' },
     { id: 'c', name: '旧标签', color: '#abcdef' },
     { id: 'deepseek', name: 'DeepSeek 标签', color: '#2d217a', icon: 'deepseek' },
+    ...[['doubao', '豆包'], ['gpt', 'GPT'], ['grok', 'Grok'], ['qwen', 'Qwen千问']].map(([icon, name]) =>
+      ({ id: icon, name, icon, color: '#896dba' })),
     { id: 'd', name: '外部样式', color: '#fedcba', icon: 'https://invalid.example/icon.svg' },
   ] };
   const imported = api.readCatalog(JSON.parse(JSON.stringify(catalog))).catalog;
-  assert.deepEqual(plain(imported.groups), [...catalog.groups.slice(0, 4), { id: 'd', name: '外部样式', color: '#fedcba' }]);
+  assert.deepEqual(plain(imported.groups), [...catalog.groups.slice(0, -1), { id: 'd', name: '外部样式', color: '#fedcba' }]);
   assert.deepEqual(plain(api.readCatalog(plain(imported)).catalog), plain(imported));
 });
 

@@ -6,9 +6,15 @@ const { withBrowser } = require('./browser-fixture.cjs');
 
 const dialog = (page, name) => page.getByRole('dialog', { name, exact: true });
 const button = (pane, name) => pane.getByRole('button', { name, exact: true });
-const alignmentGroups = ['色点', 'Claude', 'Gemini', 'DeepSeek'].map((name, index) => ({
-  id: 'align-' + index, name: '对齐夹具 ' + name, color: '#3b82f6',
-  icon: index ? name.toLowerCase() : undefined,
+const imageIcons = [
+  ['doubao', '豆包', 'png', 1],
+  ['gpt', 'GPT', 'png', 2000 / 2026],
+  ['grok', 'Grok', 'png', 1],
+  ['qwen', 'Qwen千问', 'svg+xml', 2500 / 2471],
+];
+const alignmentGroups = [[undefined, '色点'], ['claude', 'Claude'], ['gemini', 'Gemini'], ['deepseek', 'DeepSeek'],
+  ...imageIcons].map(([icon, name], index) => ({
+  id: 'align-' + index, name: '对齐夹具 ' + name, color: '#3b82f6', icon,
 }));
 
 async function assertAlignedMarkers(pane, tab) {
@@ -27,7 +33,7 @@ async function assertAlignedMarkers(pane, tab) {
       const css = getComputedStyle(marker);
       return { label: name.left - rail.right, center: box.left + box.width / 2 - rail.right,
         railGap: box.left - rail.right, labelGap: name.left - box.right,
-        width: box.width, height: box.height, fontSize: parseFloat(css.fontSize), mask: css.maskImage };
+        width: box.width, height: box.height, fontSize: parseFloat(css.fontSize), mask: css.maskImage, image: marker.matches('img') };
     }));
     assert.equal(metrics.length, alignmentGroups.length);
     const [dot, ...icons] = metrics;
@@ -38,8 +44,9 @@ async function assertAlignedMarkers(pane, tab) {
     }
     assert.equal(dot.width, 10);
     assert.equal(dot.height, 10);
-    for (const icon of icons) {
-      assert.ok(icon.mask !== 'none');
+    for (const [index, icon] of icons.entries()) {
+      if (index < 3) assert.notEqual(icon.mask, 'none');
+      else assert.equal(icon.image, true);
       assert.ok(Math.abs(icon.width - icon.fontSize) < 0.1 && Math.abs(icon.height - icon.fontSize) < 0.1);
     }
   }
@@ -79,7 +86,10 @@ for (const mode of ['st', 'tt']) test(mode + ': tag icons can be created, change
   await flush();
   assert.equal(savedTag().icon, 'claude');
   assert.equal(savedTag().color, color);
+  const iconOptions = tags.getByRole('group', { name: '标签图标' });
+  for (const [, label] of imageIcons) await iconOptions.getByRole('radio', { name: label, exact: true }).waitFor();
   assert.equal(await tags.evaluate(el => el.scrollWidth > el.clientWidth), false);
+  assert.equal(await iconOptions.evaluate(el => el.scrollWidth > el.clientWidth + 1), false);
   const preview = process.env.ST_API_TAG_PREVIEW;
   if (preview) {
     fs.mkdirSync(preview, { recursive: true });
@@ -124,6 +134,46 @@ for (const mode of ['st', 'tt']) test(mode + ': tag icons can be created, change
   await button(settings, '标签设置').click();
   await button(tag, '重命名或改色').click();
   assert.equal(await editor.getByRole('radio', { name: 'DeepSeek' }).isChecked(), true);
+  for (const [id, label, mime, ratio] of imageIcons) {
+    await editor.getByRole('radio', { name: label, exact: true }).check();
+    await button(editor, '保存').click();
+    const icon = tag.locator('img.catalog-tag-icon--' + id);
+    await icon.waitFor();
+    assert.equal(await icon.getAttribute('alt'), '');
+    assert.ok((await icon.getAttribute('src')).startsWith('data:image/' + mime + ';base64,'));
+    assert.ok(Math.abs(await icon.evaluate(async image => {
+      await image.decode();
+      return image.naturalWidth / image.naturalHeight;
+    }) - ratio) < 0.04, label + ' keeps its aspect ratio');
+    await flush();
+    assert.equal(savedTag().icon, id);
+    assert.equal(savedTag().color, color);
+    await button(tag, '重命名或改色').click();
+    assert.equal(await editor.getByRole('radio', { name: label, exact: true }).isChecked(), true);
+  }
+  await open();
+  await group.locator('summary img.catalog-tag-icon--qwen').waitFor();
+  const data = dialog(tab, '数据');
+  let exported;
+  if (mode === 'tt') {
+    await button(main, '设置').click();
+    await button(settings, '数据').click();
+    const [download] = await Promise.all([tab.waitForEvent('download'), button(data, '导出').click()]);
+    const chunks = [];
+    for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+    exported = Buffer.concat(chunks);
+    const groups = JSON.parse(exported).groups;
+    for (const [id, label] of imageIcons) {
+      assert.equal(groups.find(group => group.name === '对齐夹具 ' + label).icon, id);
+    }
+    assert.equal(groups.find(group => group.name === name).icon, 'qwen');
+    await button(data, '关闭').click();
+  } else {
+    await button(main, '设置').click();
+  }
+  await button(settings, '标签设置').click();
+  await button(tag, '重命名或改色').click();
+  assert.equal(await editor.getByRole('radio', { name: 'Qwen千问', exact: true }).isChecked(), true);
   await editor.getByRole('radio', { name: '色点' }).check();
   await button(editor, '保存').click();
   await tag.locator('.category-color-dot').waitFor();
@@ -132,6 +182,15 @@ for (const mode of ['st', 'tt']) test(mode + ': tag icons can be created, change
   assert.equal(savedTag().color, color);
   if (mode === 'tt') {
     await button(tags, '取消').click();
+    await button(settings, '数据').click();
+    await data.locator('input[type=file]').setInputFiles({ name: 'tag-icons.json', mimeType: 'application/json', buffer: exported });
+    tab.once('dialog', confirmation => confirmation.accept());
+    await dialog(tab, '导入方式').getByRole('button', { name: /替换导入/ }).click();
+    await data.getByText('已替换导入配置。', { exact: true }).waitFor();
+    await flush();
+    assert.equal(savedTag().icon, 'qwen');
+    assert.equal(savedTag().color, color);
+    await button(data, '关闭').click();
     await button(settings, '关闭').click();
     for (const width of [320, 1280]) {
       await tab.setViewportSize({ width, height: 800 });

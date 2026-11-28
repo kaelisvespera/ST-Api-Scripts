@@ -9,7 +9,11 @@ const emptyCatalog = () => ({ format: catalogFormat, version: 2, entries: [], gr
 const formatError = () => new Error('配置文件格式无效，原有配置已保留。');
 const credentialScope = row => JSON.stringify([row.site, row.source, row.url, row.key]);
 const credentialRef = row => row.credentialId ? 'id:' + row.credentialId : 'key:' + row.key;
-const isGroupIcon = value => value === 'claude' || value === 'gemini' || value === 'deepseek';
+const groupIconNames = new Map([
+  ['claude', 'Claude'], ['gemini', 'Gemini'], ['deepseek', 'DeepSeek'],
+  ['doubao', '豆包'], ['gpt', 'GPT'], ['grok', 'Grok'], ['qwen', 'Qwen千问'],
+]);
+const isGroupIcon = value => groupIconNames.has(value);
 const entryExtraFields = ['includeBody', 'excludeBody', 'includeHeaders'];
 
 function normalizeEntryExtra(extra) {
