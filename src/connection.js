@@ -10,6 +10,7 @@ function createCatalogConnection(host, context, storage) {
   const bindings = Object.assign(Object.create(null), storage.legacyBindings, saved.bindings);
   const ephemeral = new Map();
   let appliedRowId = saved.appliedRowId;
+  let appliedGroupId = saved.appliedGroupId;
   let queue = Promise.resolve();
   const serial = action => {
     queue = queue.catch(() => {}).then(action);
@@ -88,7 +89,7 @@ function createCatalogConnection(host, context, storage) {
     else ephemeral.set(localKey(provider, row.key), id);
     return id;
   }
-  async function apply(row) {
+  async function apply(row, groupId) {
     const provider = Object.hasOwn(sources, row.source) ? sources[row.source] : undefined;
     if (!provider) throw new Error('当前酒馆适配暂不支持应用此来源，请在酒馆原生连接页配置。');
     if (!row.key.trim()) throw new Error('这条配置没有密钥，请先填写，以免误用酒馆里已有的密钥。');
@@ -153,12 +154,17 @@ function createCatalogConnection(host, context, storage) {
     context.saveSettingsDebounced();
 
     appliedRowId = row.id;
+    appliedGroupId = groupId;
     let saved = true;
-    try { await storage.setConnectionState({ bindings, appliedRowId }); }
+    try { await storage.setConnectionState({ bindings, appliedRowId, appliedGroupId }); }
     catch { saved = false; }
     const result = requested ? '已应用并发起原生连接。' : '配置已应用，可在酒馆连接页连接。';
     return result + (saved ? '' : '本次应用状态未能保存。');
   }
-  return { apply: row => serial(() => apply(row)), activeRowId: () => appliedRowId };
+  return {
+    apply: (row, groupId = null) => serial(() => apply(row, groupId)),
+    activeRowId: () => appliedRowId,
+    activeGroupId: () => appliedGroupId,
+  };
 }
 

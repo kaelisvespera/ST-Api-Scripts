@@ -139,6 +139,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   min-height: 44px; width: auto; margin: 0; gap: 6px; padding: 4px 10px; white-space: nowrap;
 }
 .st-api-manager .api-manager-toolbar > .menu_button i + span { margin: 0; }
+.st-api-manager .catalog-main-search { width: 100%; min-height: 36px; margin: 6px 0 8px; padding: 6px 8px; }
 .st-api-manager.popup .st-native-hint { color: var(--catalog-reading-ink); }
 .st-api-manager [role="status"]:empty { display: none; }
 .st-api-manager [role="status"] { margin: 5px 0; overflow-wrap: anywhere; }
@@ -788,6 +789,16 @@ dialog.st-api-manager.popup.st-api-manager-native-dialog summary.catalog-colored
 .st-api-manager .catalog-group-heading .category-color-dot {
   box-shadow: none; outline: 1px solid var(--catalog-reading-ink); outline-offset: 1px;
 }
+@media (min-width: 800px) and (any-pointer: fine) {
+  dialog.st-api-manager.popup.st-api-manager-native-dialog[data-catalog-host="tt"] summary.catalog-group-heading {
+    column-gap: 12px; padding-inline: 16px !important;
+  }
+  dialog.st-api-manager.popup.st-api-manager-native-dialog[data-catalog-host="tt"] summary.catalog-colored-group-heading {
+    padding-inline-start: 28px !important;
+  }
+  .st-api-manager[data-catalog-host="tt"] summary.catalog-colored-group-heading::before { inset-inline-start: 8px; }
+  .st-api-manager[data-catalog-host="tt"] summary.catalog-group-heading > .flex-container { column-gap: 10px; }
+}
 dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-config-card:not(.secretKeyManagerItem--applied):not(.secretKeyManagerItem--selected) {
   background: var(--catalog-card-surface) !important;
 }
@@ -855,7 +866,7 @@ dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-settings-entry
 .st-api-manager .catalog-settings-entry-chevron { justify-self: end; font-size: var(--st-orb-font-sm); }
 
 .st-api-manager .catalog-theme-settings { display: grid; gap: 14px; }
-.st-api-manager .catalog-theme-follow {
+.st-api-manager :is(.catalog-theme-follow, .catalog-applied-group-toggle) {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -866,7 +877,8 @@ dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-settings-entry
   background: var(--catalog-card-surface);
   cursor: pointer;
 }
-.st-api-manager .catalog-theme-follow input { width: 1.15em; height: 1.15em; margin: 0; }
+.st-api-manager :is(.catalog-theme-follow, .catalog-applied-group-toggle) input { width: 1.15em; height: 1.15em; margin: 0; }
+.st-api-manager .catalog-applied-group-toggle { margin-block-start: 8px; }
 .st-api-manager .catalog-theme-mode {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

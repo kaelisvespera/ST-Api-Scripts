@@ -103,6 +103,7 @@ function mountCatalogPanel(host, storage, connection) {
     }
   }
   const main = popup('API 管理器', 'large', true);
+  if (host.__TAURITAVERN__) main.dialog.dataset.catalogHost = 'tt';
   const version = make('span', 'toolbar-version', catalogPanelVersion);
   version.setAttribute('aria-label', '当前版本');
   main.footer.classList.add('catalog-main-footer');
@@ -142,7 +143,24 @@ function mountCatalogPanel(host, storage, connection) {
   const managerButton = button('API 管理', manager, 'layer-group');
   managerButton.classList.add('catalog-toolbar-primary');
   toolbar.append(managerButton, button('检测', detection, 'bolt'), button('设置', settings, 'gear'));
-  main.heading.append(toolbar);
+  const searchLabel = '搜索模型名称或备注';
+  const mainSearch = fieldInput('', searchLabel, { type: 'search', placeholder: searchLabel });
+  mainSearch.classList.add('catalog-main-search');
+  let searchQuery = '';
+  const searchCollapsed = new Set();
+  function updateMainSearch(event) {
+    if (event.isComposing) return;
+    const query = mainSearch.value.trim().toLowerCase();
+    if (query === searchQuery) return;
+    searchQuery = query;
+    searchCollapsed.clear();
+    sortingGroup = undefined;
+    refresh();
+    main.scroll.scrollTop = 0;
+  }
+  mainSearch.addEventListener('input', updateMainSearch);
+  mainSearch.addEventListener('compositionend', updateMainSearch);
+  main.heading.append(toolbar, mainSearch);
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
   const rowTitle = row => row.model ? '[' + row.site + '] ' + row.model : row.site;
   function displayAlias(row) {
@@ -347,7 +365,7 @@ function mountCatalogPanel(host, storage, connection) {
       refresh();
       focusRowAction(row, group, selector);
     };
-    const apply = action('应用', () => run(main, () => connection.apply(row), undefined, () =>
+    const apply = action('应用', () => run(main, () => connection.apply(row, group?.id ?? null), undefined, () =>
       refreshAndFocus('.catalog-card-apply')), 'check');
     apply.classList.add('catalog-card-apply');
     const editButton = action('编辑', event => {
@@ -488,22 +506,42 @@ function mountCatalogPanel(host, storage, connection) {
   }
   function refresh() {
     resetDisclosures();
-    const { groups } = storage.catalog;
+    const catalog = storage.catalog;
+    const { entries, groups } = catalog;
     if (sortingGroup !== undefined && sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)) {
       sortingGroup = undefined;
     }
     const presentations = rowPresentations(sites());
+    const groupCollapsed = searchQuery ? searchCollapsed : collapsed;
+    let matching;
+    if (searchQuery) {
+      const terms = searchQuery.split(/\s+/);
+      matching = new Set(entries.filter(row => {
+        const text = [row.model, row.name, row.modelNote, presentations.get(row.id)?.keyNote].join(' ').toLowerCase();
+        return terms.every(term => text.includes(term));
+      }).map(row => row.id));
+    }
     const panel = make('div', 'api-manager-panel');
     const list = make('div', 'api-config-list');
     panel.append(list);
     const sections = [{ id: unassigned, name: '未分类' }, ...groups];
+    if (storage.pinAppliedGroup) {
+      const activeRow = entries.find(row => row.id === connection.activeRowId());
+      const appliedGroup = connection.activeGroupId();
+      const groupId = appliedGroup === undefined && activeRow?.groupIds.length === 1 ? activeRow.groupIds[0] : appliedGroup;
+      if (activeRow?.groupIds.includes(groupId)) {
+        const index = sections.findIndex(section => section.id === groupId);
+        if (index > 0) sections.unshift(sections.splice(index, 1)[0]);
+      }
+    }
     for (const section of sections) {
       const isUnassigned = section.id === unassigned;
-      const rows = orderedGroupEntries(storage.catalog, isUnassigned ? null : section.id);
-      if (sortingGroup === section.id && (!rows.length || collapsed.has(section.id))) sortingGroup = undefined;
-      if (!rows.length && isUnassigned) continue;
+      const orderedRows = orderedGroupEntries(catalog, isUnassigned ? null : section.id);
+      const rows = matching ? orderedRows.filter(row => matching.has(row.id)) : orderedRows;
+      if (sortingGroup === section.id && (!rows.length || groupCollapsed.has(section.id))) sortingGroup = undefined;
+      if (!rows.length && (matching || isUnassigned)) continue;
       const drawer = make('details', 'inline-drawer');
-      drawer.open = !collapsed.has(section.id);
+      drawer.open = !groupCollapsed.has(section.id);
       // Native details owns the state. The host delegates .inline-drawer-toggle
       // and would independently hide the same content with inline styles.
       const header = make('summary', 'inline-drawer-header catalog-group-heading');
@@ -520,7 +558,7 @@ function mountCatalogPanel(host, storage, connection) {
         event.preventDefault(); event.stopPropagation();
         if (busy) return;
         sortingGroup = sortingGroup === section.id ? undefined : section.id;
-        if (sortingGroup !== undefined) collapsed.delete(section.id);
+        if (sortingGroup !== undefined) groupCollapsed.delete(section.id);
         refresh();
         focusSortToggle(section.id);
       }, sortingGroup === section.id ? 'check' : 'sort');
@@ -531,12 +569,12 @@ function mountCatalogPanel(host, storage, connection) {
       header.append(label, sortToggle, arrow);
       drawer.addEventListener('toggle', () => {
         if (!drawer.isConnected) return;
-        const changed = collapsed.has(section.id) === drawer.open;
+        const changed = groupCollapsed.has(section.id) === drawer.open;
         if (drawer.open) {
-          collapsed.delete(section.id);
+          groupCollapsed.delete(section.id);
           for (const card of cards.children) disclosureChecks.get(card)?.();
         } else {
-          collapsed.add(section.id);
+          groupCollapsed.add(section.id);
           if (sortingGroup === section.id) {
             sortingGroup = undefined;
             refresh();
@@ -545,7 +583,7 @@ function mountCatalogPanel(host, storage, connection) {
         }
         arrow.classList.toggle('fa-circle-chevron-up', drawer.open);
         arrow.classList.toggle('fa-circle-chevron-down', !drawer.open);
-        if (changed) void storage.setGroupCollapsed(isUnassigned ? null : section.id, !drawer.open)
+        if (!matching && changed) void storage.setGroupCollapsed(isUnassigned ? null : section.id, !drawer.open)
           .catch(error => { main.status.textContent = error.message; });
       });
       const wrap = make('div', 'inline-drawer-content');
@@ -564,7 +602,8 @@ function mountCatalogPanel(host, storage, connection) {
       drawer.append(header, wrap);
       list.append(drawer);
     }
-    if (!list.childElementCount) list.append(make('p', 'api-keys-empty', '暂无 API 配置'));
+    if (!list.childElementCount) list.append(make('p', 'api-keys-empty',
+      matching ? '没有匹配的模型，试试其他关键词。' : '暂无 API 配置'));
     main.scroll.replaceChildren(panel);
   }
   function manager() {
@@ -633,7 +672,17 @@ function mountCatalogPanel(host, storage, connection) {
       });
       list.append(entry);
     }
-    pane.scroll.append(list);
+    const pinLabel = make('label', 'catalog-applied-group-toggle');
+    const pin = make('input');
+    pin.type = 'checkbox';
+    pin.checked = storage.pinAppliedGroup;
+    pinLabel.append(make('span', '', '当前应用分组置顶'), pin);
+    pin.addEventListener('change', async () => {
+      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, refresh);
+      pin.checked = storage.pinAppliedGroup;
+      if (pane.dialog.open) pin.focus({ preventScroll: true });
+    });
+    pane.scroll.append(list, pinLabel);
     pane.footer.append(closeButton(pane));
     pane.open();
   }
@@ -1132,6 +1181,9 @@ function mountCatalogPanel(host, storage, connection) {
   return () => {
     if (main.dialog.open) return;
     main.status.textContent = '';
+    mainSearch.value = '';
+    searchQuery = '';
+    searchCollapsed.clear();
     refresh();
     main.open();
   };

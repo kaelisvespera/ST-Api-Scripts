@@ -97,6 +97,39 @@ for (const [label, mode, query] of [['ST', 'st', ''], ['TT', 'tt', ''], ['TT ifr
         assert.equal(await tab.locator('dialog[open]').count(), 1);
         assert.equal(await button(main, 'API 管理').evaluate(node => node === document.activeElement), true);
       };
+      // Compare the same host and heading before and after the desktop breakpoint.
+      const headerSpacing = () => heading.evaluate(element => {
+        const style = getComputedStyle(element);
+        const rail = getComputedStyle(element, '::before');
+        const label = element.querySelector('.flex-container');
+        const marker = label.querySelector('.category-color-dot, .catalog-tag-icon');
+        const name = label.querySelector('b');
+        const sort = element.querySelector('.catalog-sort-toggle');
+        const arrow = element.querySelector('.inline-drawer-icon');
+        const railEnd = element.getBoundingClientRect().left + parseFloat(style.borderInlineStartWidth)
+          + parseFloat(rail.insetInlineStart) + parseFloat(rail.inlineSize);
+        return {
+          spacing: [style.paddingInlineStart, style.paddingInlineEnd, style.columnGap,
+            getComputedStyle(label).columnGap, rail.insetInlineStart],
+          railToMarker: marker.getBoundingClientRect().left - railEnd,
+          markerToName: name.getBoundingClientRect().left - marker.getBoundingClientRect().right,
+          sortToArrow: arrow.getBoundingClientRect().left - sort.getBoundingClientRect().right,
+        };
+      });
+      assert.equal(await main.getAttribute('data-catalog-host'), mode === 'tt' ? 'tt' : null);
+      const initialViewport = tab.viewportSize();
+      const compact = await headerSpacing();
+      assert.deepEqual(compact.spacing, ['18px', '8px', '5px', '5px', '5px']);
+      await tab.setViewportSize({ width: 1280, height: 900 });
+      const desktop = await headerSpacing();
+      if (mode === 'tt') {
+        assert.deepEqual(desktop.spacing, ['28px', '16px', '12px', '10px', '8px']);
+        assert.ok(desktop.railToMarker >= compact.railToMarker + 6, JSON.stringify({ compact, desktop }));
+        assert.ok(desktop.markerToName >= compact.markerToName + 4, JSON.stringify({ compact, desktop }));
+        assert.ok(desktop.sortToArrow >= compact.sortToArrow + 6, JSON.stringify({ compact, desktop }));
+      } else assert.deepEqual(desktop.spacing, compact.spacing);
+      await tab.setViewportSize(initialViewport);
+
       await assertDrawer(true, 'initial');
       for (const [width, height, save] of [[390, 844, true], [844, 390, false], [390, 844, true]]) {
         await tab.setViewportSize({ width, height });
