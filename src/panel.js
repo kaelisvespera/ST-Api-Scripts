@@ -158,6 +158,10 @@ function mountCatalogPanel(host, storage, connection) {
     return (knownGroup ? suffix : row.name).slice(0, -model.length).trim();
   }
   const groupColor = group => /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#3b82f6';
+  function colorGroupHeading(heading, group) {
+    heading.classList.add('catalog-colored-group-heading');
+    heading.style.setProperty('--catalog-group-color', groupColor(group));
+  }
   function groupMarker(group) {
     const iconName = group.icon;
     const marker = isGroupIcon(iconName)
@@ -506,7 +510,7 @@ function mountCatalogPanel(host, storage, connection) {
       const label = make('span', 'flex-container alignItemsCenter');
       const name = make('b', '', section.name);
       if (!isUnassigned) {
-        header.style.setProperty('border-inline-start-color', groupColor(section), 'important');
+        colorGroupHeading(header, section);
         label.append(groupMarker(section));
       }
       label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
@@ -1101,7 +1105,7 @@ function mountCatalogPanel(host, storage, connection) {
         const header = make('summary', 'catalog-fill-group-header catalog-group-heading');
         const title = make('b', 'catalog-fill-group-name', group.name);
         if (group.id !== unassigned) {
-          header.style.setProperty('border-inline-start-color', groupColor(group), 'important');
+          colorGroupHeading(header, group);
           header.append(groupMarker(group));
         }
         const arrow = icon('chevron-right');
