@@ -100,18 +100,17 @@ for (const [label, mode, query] of [['ST', 'st', ''], ['TT', 'tt', ''], ['TT ifr
       // Compare the same host and heading before and after the desktop breakpoint.
       const headerSpacing = () => heading.evaluate(element => {
         const style = getComputedStyle(element);
-        const rail = getComputedStyle(element, '::before');
-        const label = element.querySelector('.flex-container');
+        const rail = element.querySelector(':scope > .catalog-group-rail');
+        const label = element.querySelector('.catalog-group-label');
         const marker = label.querySelector('.category-color-dot, .catalog-tag-icon');
         const name = label.querySelector('b');
         const sort = element.querySelector('.catalog-sort-toggle');
         const arrow = element.querySelector('.inline-drawer-icon');
-        const railEnd = element.getBoundingClientRect().left + parseFloat(style.borderInlineStartWidth)
-          + parseFloat(rail.insetInlineStart) + parseFloat(rail.inlineSize);
+        const paintedMarkerStart = marker.getBoundingClientRect().left - 2;
         return {
           spacing: [style.paddingInlineStart, style.paddingInlineEnd, style.columnGap,
-            getComputedStyle(label).columnGap, rail.insetInlineStart],
-          railToMarker: marker.getBoundingClientRect().left - railEnd,
+            getComputedStyle(label).columnGap],
+          railToMarker: paintedMarkerStart - rail.getBoundingClientRect().right,
           markerToName: name.getBoundingClientRect().left - marker.getBoundingClientRect().right,
           sortToArrow: arrow.getBoundingClientRect().left - sort.getBoundingClientRect().right,
         };
@@ -119,14 +118,27 @@ for (const [label, mode, query] of [['ST', 'st', ''], ['TT', 'tt', ''], ['TT ifr
       assert.equal(await main.getAttribute('data-catalog-host'), mode === 'tt' ? 'tt' : null);
       const initialViewport = tab.viewportSize();
       const compact = await headerSpacing();
-      assert.deepEqual(compact.spacing, ['18px', '8px', '5px', '5px', '5px']);
+      assert.deepEqual(compact.spacing, ['8px', '8px', '5px', '5px']);
+      assert.ok(compact.railToMarker >= 3, JSON.stringify(compact));
       await tab.setViewportSize({ width: 1280, height: 900 });
       const desktop = await headerSpacing();
       if (mode === 'tt') {
-        assert.deepEqual(desktop.spacing, ['28px', '16px', '12px', '10px', '8px']);
+        assert.deepEqual(desktop.spacing, ['12px', '16px', '12px', '10px']);
         assert.ok(desktop.railToMarker >= compact.railToMarker + 6, JSON.stringify({ compact, desktop }));
         assert.ok(desktop.markerToName >= compact.markerToName + 4, JSON.stringify({ compact, desktop }));
         assert.ok(desktop.sortToArrow >= compact.sortToArrow + 6, JSON.stringify({ compact, desktop }));
+        const originalStyle = await heading.getAttribute('style');
+        for (const [padding, computed] of [['14px', '14px'], ['0px', '0px'], ['unset', '0px']]) {
+          await heading.evaluate((node, value) => node.style.setProperty('padding-inline-start', value, 'important'), padding);
+          const overridden = await headerSpacing();
+          assert.equal(overridden.spacing[0], computed);
+          assert.ok(overridden.railToMarker >= 8, JSON.stringify({ padding, overridden }));
+        }
+        await heading.evaluate((node, style) => {
+          if (style === null) node.removeAttribute('style');
+          else node.setAttribute('style', style);
+        }, originalStyle);
+        assert.deepEqual(await headerSpacing(), desktop);
       } else assert.deepEqual(desktop.spacing, compact.spacing);
       await tab.setViewportSize(initialViewport);
 

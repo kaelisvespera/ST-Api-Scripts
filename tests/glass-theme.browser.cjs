@@ -64,6 +64,7 @@ async function assertSurface(pane, label) {
 }
 
 async function assertGroupPaint(heading, group) {
+  assert.equal(await heading.locator(':scope > .catalog-group-rail').count(), 1, group.name);
   const paint = await heading.evaluate(element => {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
@@ -76,8 +77,11 @@ async function assertGroupPaint(heading, group) {
     };
     const headingStyle = getComputedStyle(element);
     const dialogStyle = getComputedStyle(element.closest('dialog'));
-    const stripe = getComputedStyle(element, '::before');
+    const rail = element.firstElementChild;
+    const stripe = getComputedStyle(rail);
     return {
+      railFirst: rail.matches('span.catalog-group-rail'),
+      railHidden: rail.getAttribute('aria-hidden'),
       surface: readColor(headingStyle.backgroundColor),
       panel: readColor(dialogStyle.backgroundColor),
       outline: readColor(headingStyle.borderTopColor),
@@ -97,6 +101,8 @@ async function assertGroupPaint(heading, group) {
   assert.notDeepEqual(paint.outline, paint.surface, group.name);
   assert.ok(paint.outline[3] > 0, group.name);
   assert.deepEqual([paint.outlineWidth, paint.outlineStyle], ['1px', 'solid'], group.name);
+  assert.ok(paint.railFirst, group.name);
+  assert.equal(paint.railHidden, 'true', group.name);
   assert.equal(paint.stripeColor, group.painted, group.name);
   assert.ok(paint.stripeEdge[3] > 0, group.name);
   assert.notDeepEqual(paint.stripeEdge, paint.surface, group.name);
@@ -126,8 +132,7 @@ async function assertGroupHeadings(pane, groupHeader) {
     }
   }
   const unassigned = headings.filter({ hasText: '未分类' });
-  const rail = await unassigned.evaluate(element => getComputedStyle(element, '::before').content);
-  assert.ok(rail === 'none' || rail === 'normal', '未分类 does not have a color rail');
+  assert.equal(await unassigned.locator(':scope > .catalog-group-rail').count(), 0, '未分类 does not have a color rail');
 }
 
 for (const mode of ['st', 'tt']) for (const [theme, values] of Object.entries(themes)) {

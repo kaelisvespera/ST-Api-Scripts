@@ -170,7 +170,14 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 }
 .st-api-manager details[open] > .inline-drawer-content { display: block; }
 .st-api-manager details:not([open]) > .inline-drawer-content { display: none; }
-.st-api-manager .inline-drawer-header .flex-container { display: flex; align-items: center; }
+.st-api-manager .catalog-group-label {
+  display: flex; flex: 1; align-items: center; gap: var(--st-orb-spacing-sm); min-width: 0;
+}
+.st-api-manager .catalog-group-pin {
+  flex-shrink: 0; white-space: nowrap; padding: 2px 5px; border-radius: 4px;
+  background: var(--catalog-control-selected); color: var(--catalog-reading-ink);
+  font-size: var(--st-orb-font-xs); font-weight: 600; line-height: 1.2;
+}
 .st-api-manager .category-tag {
   display: inline-flex; flex-wrap: nowrap; gap: 5px; min-width: 0; max-width: 100%;
   height: auto; margin: 0; border-radius: 1em; white-space: normal;
@@ -425,7 +432,6 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 
 :where(.st-api-manager) .inline-drawer { margin-bottom:var(--st-orb-spacing-md); }
 :where(.st-api-manager) .inline-drawer .inline-drawer-header { cursor:pointer;position:relative;z-index:1;gap:var(--st-orb-spacing-sm); }
-:where(.st-api-manager) .inline-drawer .inline-drawer-header .flex-container { flex:1;gap:var(--st-orb-spacing-sm);pointer-events:auto; }
 :where(.st-api-manager) .inline-drawer.closed .inline-drawer-content { display:none; }
 :where(.st-api-manager) .category-count { color:var(--catalog-reading-ink);font-weight:normal; }
 :where(.st-api-manager) .inline-drawer-content { padding:var(--st-orb-spacing-md);overflow:visible; }
@@ -697,7 +703,6 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-sort-controls button:focus-visible,
 .st-api-manager .catalog-sort-toggle:focus-visible { outline: 2px solid var(--SmartThemeQuoteColor); outline-offset: 1px; }
 .st-api-manager .catalog-sort-toggle { flex-shrink: 0; min-height: 32px; margin: 0; }
-.st-api-manager .inline-drawer-header .flex-container { min-width: 0; }
 .st-api-manager .inline-drawer-header b { overflow-wrap: anywhere; min-width: 0; }
 .st-api-manager .catalog-sort-help { margin: 0 0 6px; font-size: var(--st-orb-font-sm); }
 
@@ -777,27 +782,19 @@ dialog.st-api-manager.popup.st-api-manager-native-dialog summary.catalog-group-h
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-dialog.st-api-manager.popup.st-api-manager-native-dialog summary.catalog-colored-group-heading {
-  padding-inline-start: 18px !important;
-}
-.st-api-manager summary.catalog-colored-group-heading::before {
-  content: ""; position: absolute; inset-block: 7px; inset-inline-start: 5px;
-  box-sizing: border-box; inline-size: 7px; border-radius: 4px;
-  border: 1px solid var(--catalog-reading-ink); background: var(--catalog-group-color);
-  pointer-events: none;
+.st-api-manager .catalog-group-heading > .catalog-group-rail {
+  display: block; box-sizing: border-box; flex: 0 0 7px; inline-size: 7px;
+  align-self: stretch; margin: 3px 0; border-radius: 4px;
+  border: 1px solid var(--catalog-reading-ink); pointer-events: none;
 }
 .st-api-manager .catalog-group-heading .category-color-dot {
   box-shadow: none; outline: 1px solid var(--catalog-reading-ink); outline-offset: 1px;
 }
 @media (min-width: 800px) and (any-pointer: fine) {
   dialog.st-api-manager.popup.st-api-manager-native-dialog[data-catalog-host="tt"] summary.catalog-group-heading {
-    column-gap: 12px; padding-inline: 16px !important;
+    column-gap: 12px; padding-inline: 12px 16px !important;
   }
-  dialog.st-api-manager.popup.st-api-manager-native-dialog[data-catalog-host="tt"] summary.catalog-colored-group-heading {
-    padding-inline-start: 28px !important;
-  }
-  .st-api-manager[data-catalog-host="tt"] summary.catalog-colored-group-heading::before { inset-inline-start: 8px; }
-  .st-api-manager[data-catalog-host="tt"] summary.catalog-group-heading > .flex-container { column-gap: 10px; }
+  .st-api-manager[data-catalog-host="tt"] summary.catalog-group-heading > .catalog-group-label { column-gap: 10px; }
 }
 dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-config-card:not(.secretKeyManagerItem--applied):not(.secretKeyManagerItem--selected) {
   background: var(--catalog-card-surface) !important;

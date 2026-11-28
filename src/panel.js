@@ -178,7 +178,10 @@ function mountCatalogPanel(host, storage, connection) {
   const groupColor = group => /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#3b82f6';
   function colorGroupHeading(heading, group) {
     heading.classList.add('catalog-colored-group-heading');
-    heading.style.setProperty('--catalog-group-color', groupColor(group));
+    const rail = make('span', 'catalog-group-rail');
+    rail.style.backgroundColor = groupColor(group);
+    rail.setAttribute('aria-hidden', 'true');
+    heading.append(rail);
   }
   function groupMarker(group) {
     const iconName = group.icon;
@@ -347,6 +350,11 @@ function mountCatalogPanel(host, storage, connection) {
     }
     return fields;
   }
+  function revealPinnedHeading(heading, focus = false) {
+    if (!heading) return;
+    if (focus) heading.focus({ preventScroll: true });
+    main.scroll.scrollTo({ top: 0, behavior: 'instant' });
+  }
   function focusRowAction(row, group, selector = '.catalog-card-edit') {
     const cards = [...main.scroll.querySelectorAll('.catalog-config-card')].filter(card =>
       card.dataset.entryId === row.id && card.getClientRects().length);
@@ -365,8 +373,11 @@ function mountCatalogPanel(host, storage, connection) {
       refresh();
       focusRowAction(row, group, selector);
     };
-    const apply = action('应用', () => run(main, () => connection.apply(row, group?.id ?? null), undefined, () =>
-      refreshAndFocus('.catalog-card-apply')), 'check');
+    const apply = action('应用', () => run(main, () => connection.apply(row, group?.id ?? null), undefined, () => {
+      const heading = refresh();
+      if (heading) revealPinnedHeading(heading, true);
+      else focusRowAction(row, group, '.catalog-card-apply');
+    }), 'check');
     apply.classList.add('catalog-card-apply');
     const editButton = action('编辑', event => {
       event.currentTarget.focus({ preventScroll: true });
@@ -525,14 +536,15 @@ function mountCatalogPanel(host, storage, connection) {
     const list = make('div', 'api-config-list');
     panel.append(list);
     const sections = [{ id: unassigned, name: '未分类' }, ...groups];
+    let pinnedGroup;
+    let pinnedHeading;
     if (storage.pinAppliedGroup) {
       const activeRow = entries.find(row => row.id === connection.activeRowId());
       const appliedGroup = connection.activeGroupId();
-      const groupId = appliedGroup === undefined && activeRow?.groupIds.length === 1 ? activeRow.groupIds[0] : appliedGroup;
-      if (activeRow?.groupIds.includes(groupId)) {
-        const index = sections.findIndex(section => section.id === groupId);
-        if (index > 0) sections.unshift(sections.splice(index, 1)[0]);
-      }
+      // Legacy connections have no source group. Use the first current tag in catalog order.
+      pinnedGroup = groups.find(group => activeRow?.groupIds.includes(group.id) &&
+        (appliedGroup === undefined || appliedGroup === group.id));
+      if (pinnedGroup) sections.unshift(sections.splice(sections.indexOf(pinnedGroup), 1)[0]);
     }
     for (const section of sections) {
       const isUnassigned = section.id === unassigned;
@@ -545,13 +557,17 @@ function mountCatalogPanel(host, storage, connection) {
       // Native details owns the state. The host delegates .inline-drawer-toggle
       // and would independently hide the same content with inline styles.
       const header = make('summary', 'inline-drawer-header catalog-group-heading');
-      const label = make('span', 'flex-container alignItemsCenter');
+      const label = make('span', 'catalog-group-label');
       const name = make('b', '', section.name);
       if (!isUnassigned) {
         colorGroupHeading(header, section);
         label.append(groupMarker(section));
       }
       label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
+      if (section === pinnedGroup) {
+        pinnedHeading = header;
+        label.append(make('span', 'catalog-group-pin', '已置顶'));
+      }
       const arrow = icon(drawer.open ? 'circle-chevron-up' : 'circle-chevron-down');
       arrow.classList.add('inline-drawer-icon');
       const sortToggle = button(sortingGroup === section.id ? '完成' : '排序', event => {
@@ -605,6 +621,7 @@ function mountCatalogPanel(host, storage, connection) {
     if (!list.childElementCount) list.append(make('p', 'api-keys-empty',
       matching ? '没有匹配的模型，试试其他关键词。' : '暂无 API 配置'));
     main.scroll.replaceChildren(panel);
+    return pinnedHeading;
   }
   function manager() {
     const pane = popup('API 管理');
@@ -678,7 +695,7 @@ function mountCatalogPanel(host, storage, connection) {
     pin.checked = storage.pinAppliedGroup;
     pinLabel.append(make('span', '', '当前应用分组置顶'), pin);
     pin.addEventListener('change', async () => {
-      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, refresh);
+      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, () => revealPinnedHeading(refresh()));
       pin.checked = storage.pinAppliedGroup;
       if (pane.dialog.open) pin.focus({ preventScroll: true });
     });
@@ -1184,8 +1201,9 @@ function mountCatalogPanel(host, storage, connection) {
     mainSearch.value = '';
     searchQuery = '';
     searchCollapsed.clear();
-    refresh();
+    const pinnedHeading = refresh();
     main.open();
+    revealPinnedHeading(pinnedHeading);
   };
 }
 
