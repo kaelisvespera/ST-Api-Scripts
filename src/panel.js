@@ -123,7 +123,7 @@ function mountCatalogPanel(host, storage, connection) {
     for (const check of disclosureChecks.values()) check();
   });
   const groupKey = group => group?.id ?? unassigned;
-  const focusSortToggle = id => [...main.dialog.querySelectorAll('.catalog-sort-toggle')]
+  const focusSortToggle = id => [...main.scroll.querySelectorAll('.catalog-sort-toggle')]
     .find(control => control.dataset.groupId === (id === unassigned ? '' : id))?.focus();
   main.dialog.addEventListener('cancel', event => {
     if (sortingGroup === undefined || busy) return;
@@ -160,9 +160,7 @@ function mountCatalogPanel(host, storage, connection) {
   }
   mainSearch.addEventListener('input', updateMainSearch);
   mainSearch.addEventListener('compositionend', updateMainSearch);
-  const fixedGroup = make('div', 'catalog-fixed-group');
-  fixedGroup.hidden = true;
-  main.heading.append(toolbar, mainSearch, fixedGroup);
+  main.heading.append(toolbar, mainSearch);
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
   const rowTitle = row => row.model ? '[' + row.site + '] ' + row.model : row.site;
   function displayAlias(row) {
@@ -519,12 +517,17 @@ function mountCatalogPanel(host, storage, connection) {
     }
     return presentations;
   }
+  function revealFrozenGroupBody(body) {
+    if (!body || body.hidden) return;
+    const headerHeight = body.previousElementSibling.getBoundingClientRect().height;
+    const viewportTop = main.scroll.getBoundingClientRect().top + main.scroll.clientTop;
+    main.scroll.scrollBy({ top: body.getBoundingClientRect().top - viewportTop - headerHeight, behavior: 'instant' });
+  }
   function refresh() {
     resetDisclosures();
     const catalog = storage.catalog;
     const { entries, groups } = catalog;
-    const dockedGroup = fixedTag(catalog);
-    let dockedDrawer;
+    const frozenGroup = fixedTag(catalog);
     if (sortingGroup !== undefined && sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)) {
       sortingGroup = undefined;
     }
@@ -547,8 +550,8 @@ function mountCatalogPanel(host, storage, connection) {
       const orderedRows = orderedGroupEntries(catalog, isUnassigned ? null : section.id);
       const rows = matching ? orderedRows.filter(row => matching.has(row.id)) : orderedRows;
       if (sortingGroup === section.id && (!rows.length || groupCollapsed.has(section.id))) sortingGroup = undefined;
-      const docked = section === dockedGroup;
-      if (!docked && !rows.length && (matching || isUnassigned)) continue;
+      const frozen = section === frozenGroup;
+      if (!frozen && !rows.length && (matching || isUnassigned)) continue;
       const drawer = make('details', 'inline-drawer');
       drawer.dataset.groupId = isUnassigned ? '' : section.id;
       drawer.open = !groupCollapsed.has(section.id);
@@ -570,8 +573,7 @@ function mountCatalogPanel(host, storage, connection) {
         sortingGroup = sortingGroup === section.id ? undefined : section.id;
         if (sortingGroup !== undefined) groupCollapsed.delete(section.id);
         refresh();
-        if (docked && sortingGroup === section.id) main.scroll.querySelector('.catalog-docked-body')
-          ?.scrollIntoView({ block: 'start', behavior: 'instant' });
+        if (frozen && sortingGroup === section.id) revealFrozenGroupBody(main.scroll.querySelector('.catalog-frozen-group-body'));
         focusSortToggle(section.id);
       }, sortingGroup === section.id ? 'check' : 'sort');
       sortToggle.classList.add('catalog-sort-toggle');
@@ -583,11 +585,11 @@ function mountCatalogPanel(host, storage, connection) {
       drawer.addEventListener('toggle', () => {
         if (!drawer.isConnected) return;
         const changed = groupCollapsed.has(section.id) === drawer.open;
-        if (docked) wrap.hidden = !drawer.open || !rows.length;
+        if (frozen) wrap.hidden = !drawer.open || !rows.length;
         if (drawer.open) {
           groupCollapsed.delete(section.id);
           for (const card of cards.children) disclosureChecks.get(card)?.();
-          if (docked && changed && rows.length) wrap.scrollIntoView({ block: 'start', behavior: 'instant' });
+          if (frozen && changed) revealFrozenGroupBody(wrap);
         } else {
           groupCollapsed.add(section.id);
           if (sortingGroup === section.id) {
@@ -614,15 +616,15 @@ function mountCatalogPanel(host, storage, connection) {
       if (sortingGroup === section.id) wrap.append(make('p', 'catalog-sort-help', '拖动排序柄或使用上下按钮、方向键调整，仅影响当前分组；每次移动自动保存。'));
       wrap.append(cards);
       drawer.append(header);
-      if (docked) {
-        // Keep the native summary and its controls together. Its cards keep their list slot.
-        wrap.id = 'st-api-manager-docked-group-content';
-        wrap.classList.add('catalog-docked-body');
+      if (frozen) {
+        // Both pieces stay in the original list slot. The title sticks against the full list.
+        drawer.classList.add('catalog-frozen-group');
+        wrap.id = 'st-api-manager-frozen-group-content';
+        wrap.classList.add('catalog-frozen-group-body');
         wrap.dataset.groupId = section.id;
         wrap.hidden = !drawer.open || !rows.length;
         header.setAttribute('aria-controls', wrap.id);
-        dockedDrawer = drawer;
-        list.append(wrap);
+        list.append(drawer, wrap);
       } else {
         drawer.append(wrap);
         list.append(drawer);
@@ -631,8 +633,6 @@ function mountCatalogPanel(host, storage, connection) {
     if (!list.childElementCount || matching?.size === 0) list.append(make('p', 'api-keys-empty',
       matching ? '没有匹配的模型，试试其他关键词。' : '暂无 API 配置'));
     main.scroll.replaceChildren(panel);
-    fixedGroup.replaceChildren(...(dockedDrawer ? [dockedDrawer] : []));
-    fixedGroup.hidden = !dockedDrawer;
   }
   function manager() {
     const pane = popup('API 管理');

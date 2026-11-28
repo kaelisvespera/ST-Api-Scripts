@@ -6,18 +6,19 @@ const { withBrowser } = require('./browser-fixture.cjs');
 const catalogKey = 'st_api_manager_catalog_v2';
 const uiKey = 'st_api_manager_ui_v1';
 const connectionKey = 'st_api_manager_connection_v2';
-const originalOrder = ['', '甲', '乙', '丙'];
+const originalOrder = ['', '甲', '乙', '丙', '丁'];
 const pinLabel = '固定当前应用标签';
 
-for (const host of ['st', 'tt']) test(host + ': the last successfully applied tag stays visible while groups scroll',
+for (const host of ['st', 'tt']) test(host + ': the current tag freezes only after it reaches the list top',
   { timeout: 45000 }, () => withBrowser(host, async ({ tab, open, stores, origin, flush }) => {
-    const groups = ['甲', '乙', '丙'].map(name => ({ id: name, name: '标签' + name, color: '#3578ab' }));
+    const groups = ['甲', '乙', '丙', '丁'].map(name => ({ id: name, name: '标签' + name, color: '#3578ab' }));
     const fillers = groupId => Array.from({ length: 8 }, (_, i) => ({ id: groupId + '-filler-' + i, groupIds: [groupId] }));
     const aFillers = fillers('甲');
     const bFillers = fillers('乙');
     const entries = [
       ...aFillers,
       ...bFillers,
+      ...fillers('丁'),
       { id: 'multi', groupIds: ['乙', '甲'] },
       { id: 'second', groupIds: ['乙'] },
       { id: 'missing-key', groupIds: ['乙'] },
@@ -39,9 +40,9 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
     const main = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
     const settings = tab.getByRole('dialog', { name: '设置', exact: true });
     const button = (pane, name) => pane.getByRole('button', { name, exact: true });
-    const section = id => main.locator('.api-config-list > [data-group-id="' + id + '"]');
+    const section = id => main.locator('.api-config-list > :is(details:not(.catalog-frozen-group), .catalog-frozen-group-body)[data-group-id="' + id + '"]');
     const card = (groupId, id) => section(groupId).locator('.catalog-config-card[data-entry-id="' + id + '"]');
-    const order = () => main.locator('.api-config-list > [data-group-id]')
+    const order = () => main.locator('.api-config-list > details[data-group-id]')
       .evaluateAll(items => items.map(item => item.dataset.groupId));
     const pin = settings.getByLabel(pinLabel, { exact: true });
     const setPin = async (enabled, expectedBefore) => {
@@ -53,35 +54,35 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
     const applyButton = (groupId, id) => button(card(groupId, id), '应用');
     const apply = (groupId, id) => applyButton(groupId, id).click();
     const scroller = main.locator('.popup-scroll-content');
-    const fixed = main.locator('.catalog-fixed-group');
-    const fixedHeader = fixed.locator('details > summary.inline-drawer-header.catalog-group-heading');
+    const fixedHeader = main.locator('.api-config-list > details.catalog-frozen-group > summary.inline-drawer-header.catalog-group-heading');
     const assertScrolled = async () => assert.ok(await scroller.evaluate(node => node.scrollTop > node.clientHeight));
+    const headerGeometry = header => header.evaluate(node => {
+      const scroll = node.closest('.popup-scroll-content');
+      const bar = node.getBoundingClientRect();
+      const viewport = scroll.getBoundingClientRect();
+      return { y: bar.top - viewport.top, scrollTop: scroll.scrollTop, viewportHeight: scroll.clientHeight,
+        overCards: node.contains(document.elementFromPoint(bar.left + bar.width / 2, bar.top + bar.height / 2)) };
+    });
+    const scrollTo = y => scroller.evaluate((node, top) => node.scrollTo({ top, behavior: 'instant' }), y);
+    const assertAtTop = async () => {
+      const geometry = await headerGeometry(fixedHeader);
+      assert.ok(Math.abs(geometry.y) <= 1 && geometry.overCards, JSON.stringify(geometry));
+    };
     const assertFixed = async id => {
       const name = '标签' + id;
       await fixedHeader.getByText(name, { exact: true }).waitFor();
       assert.equal(await main.getByText(name, { exact: true }).count(), 1);
       assert.equal(await main.getByText('当前应用', { exact: true }).count(), 0);
-      assert.equal(await fixed.getAttribute('role'), null);
+      assert.equal(await main.locator('.catalog-fixed-group').count(), 0);
       assert.equal(await fixedHeader.evaluate(node => node.parentElement.dataset.groupId), id);
-      assert.equal(await fixedHeader.getAttribute('aria-controls'), 'st-api-manager-docked-group-content');
-      assert.equal(await section(id).getAttribute('id'), 'st-api-manager-docked-group-content');
-      assert.ok(await section(id).evaluate(node => node.matches('div.catalog-docked-body')));
+      assert.equal(await fixedHeader.getAttribute('aria-controls'), 'st-api-manager-frozen-group-content');
+      assert.equal(await section(id).getAttribute('id'), 'st-api-manager-frozen-group-content');
+      assert.ok(await fixedHeader.evaluate(node => node.parentElement.nextElementSibling.matches('div.catalog-frozen-group-body')));
       assert.equal(await fixedHeader.locator('.category-count').textContent(),
         '(' + await section(id).locator('.catalog-config-card').count() + ')');
       assert.equal(await fixedHeader.locator('.catalog-group-rail').evaluate(node => getComputedStyle(node).backgroundColor),
         'rgb(53, 120, 171)');
       assert.equal(await fixedHeader.locator('.category-color-dot').count(), 1);
-      const geometry = await fixed.evaluate(node => {
-        const dialog = node.closest('dialog');
-        const scroll = dialog.querySelector('.popup-scroll-content');
-        const search = dialog.querySelector('.catalog-main-search');
-        const bar = node.getBoundingClientRect();
-        return { insideScroll: scroll.contains(node), top: bar.top, bottom: bar.bottom,
-          scrollTopEdge: scroll.getBoundingClientRect().top, searchBottom: search.getBoundingClientRect().bottom };
-      });
-      assert.equal(geometry.insideScroll, false);
-      assert.ok(geometry.top >= geometry.searchBottom - 1 && geometry.bottom <= geometry.scrollTopEdge + 1, JSON.stringify(geometry));
-      return geometry.top;
     };
     const remainsCollapsed = () => section('丙').evaluate(element => !element.open);
     const orderWithinB = () => section('乙').locator('.catalog-config-card')
@@ -94,7 +95,7 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
     await apply('乙', 'multi');
     await card('乙', 'multi').getByText('已应用', { exact: true }).waitFor();
     assert.deepEqual(await order(), originalOrder);
-    assert.equal(await fixed.isVisible(), false);
+    assert.equal(await fixedHeader.count(), 0);
     await assertScrolled();
     await setPin(true, false);
     await assertFixed('乙');
@@ -103,7 +104,7 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
     assert.equal(await remainsCollapsed(), true);
     assert.deepEqual(await orderWithinB(), groupOrders[0].entryIds);
 
-    // The docked original bar still controls its cards and their sort mode.
+    // The original header still controls its cards and their sort mode.
     await fixedHeader.press('Space');
     await section('乙').waitFor({ state: 'hidden' });
     assert.equal(await fixedHeader.locator('.fa-circle-chevron-down').count(), 1);
@@ -116,17 +117,27 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
     await section('乙').getByRole('button', { name: '拖动排序：second', exact: true }).waitFor({ state: 'hidden' });
     assert.deepEqual(await orderWithinB(), groupOrders[0].entryIds);
 
-    // Scroll from the beginning through other groups without moving the original header.
-    await scroller.evaluate(node => { node.scrollTop = 0; });
-    const beforeWheel = await assertFixed('乙');
+    // It stays in the original position until it reaches the top, then freezes across later groups.
+    await scrollTo(0);
+    const natural = await headerGeometry(fixedHeader);
+    assert.ok(natural.y > natural.viewportHeight, JSON.stringify(natural));
+    const laterHeader = main.locator('.api-config-list > details[data-group-id="丁"] > summary');
+    const later = await headerGeometry(laterHeader);
+    await scrollTo(Math.floor(natural.y - 32));
+    const approaching = await headerGeometry(fixedHeader);
+    assert.ok(approaching.y >= 31 && approaching.y <= 34, JSON.stringify(approaching));
     const scrollBox = await scroller.boundingBox();
     await tab.mouse.move(scrollBox.x + scrollBox.width / 2, scrollBox.y + scrollBox.height / 2);
-    await tab.mouse.wheel(0, 900);
-    await tab.waitForFunction(() => {
-      const scroll = document.querySelector('dialog[open] .popup-scroll-content');
-      return scroll.scrollTop > scroll.clientHeight;
-    });
-    assert.ok(Math.abs(await assertFixed('乙') - beforeWheel) <= 1);
+    await tab.mouse.wheel(0, 130);
+    await tab.waitForFunction(threshold => document.querySelector('dialog[open] .popup-scroll-content').scrollTop > threshold, natural.y);
+    await assertAtTop();
+    await scrollTo(Math.floor(later.y - 80));
+    assert.ok((await headerGeometry(laterHeader)).y >= 79 && (await headerGeometry(laterHeader)).y <= 82);
+    await assertAtTop();
+    await scrollTo(await scroller.evaluate(node => node.scrollHeight - node.clientHeight));
+    await assertAtTop();
+    await scrollTo(0);
+    assert.ok(Math.abs((await headerGeometry(fixedHeader)).y - natural.y) <= 1);
 
     await button(main, '关闭').click();
     await tab.locator('#st-api-manager-extension-button').click();

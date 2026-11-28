@@ -173,8 +173,15 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-group-label {
   display: flex; flex: 1; align-items: center; gap: var(--st-orb-spacing-sm); min-width: 0;
 }
-.st-api-manager .catalog-fixed-group > .inline-drawer { margin-block: 0 8px; }
-.st-api-manager .catalog-docked-body:not([hidden]) { display: block !important; margin-block-end: var(--st-orb-spacing-md); }
+.st-api-manager .api-config-list > .catalog-frozen-group {
+  position: sticky !important; inset-block-start: 0; z-index: 4;
+}
+.st-api-manager .catalog-frozen-group:has(+ .catalog-frozen-group-body:not([hidden])) {
+  margin-block-end: calc(-1 * var(--st-orb-spacing-lg));
+}
+.st-api-manager .catalog-frozen-group-body:not([hidden]) {
+  display: block !important; margin-block-end: var(--st-orb-spacing-md);
+}
 .st-api-manager .category-tag {
   display: inline-flex; flex-wrap: nowrap; gap: 5px; min-width: 0; max-width: 100%;
   height: auto; margin: 0; border-radius: 1em; white-space: normal;
