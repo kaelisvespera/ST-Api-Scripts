@@ -243,7 +243,13 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .st-native-key-item .key-info { min-width: 0; }
 .st-api-manager .st-native-key-item .key-info input { width: 100%; }
 .st-api-manager .catalog-key-selected { border-color: var(--st-orb-primary); }
-.st-api-manager .active-badge-sm { padding: 2px 6px; background: var(--st-orb-success); color: var(--st-orb-text-contrast); border-radius: 4px; font-size: 10px; font-weight: 600; }
+.st-api-manager .active-badge-sm {
+  padding: 2px 6px; background-color: #36594b; color: #f5fbf7;
+  border-radius: 4px; font-size: 10px; font-weight: 600;
+}
+.st-api-manager[data-catalog-theme="dark"] .active-badge-sm {
+  outline: 1px solid var(--st-orb-success); outline-offset: -1px;
+}
 @media (max-width: 480px) {
   dialog.st-api-manager.popup { --st-orb-font-xs: calc(var(--mainFontSize, 15px) * .75); --st-orb-font-sm: calc(var(--mainFontSize, 15px) * .85); --st-orb-spacing-md: 7px; --st-orb-spacing-lg: 8px; --st-orb-spacing-xl: 10px; --st-orb-spacing-2xl: 12px; }
   dialog.st-api-manager.popup { --catalog-dialog-padding: 10px; }

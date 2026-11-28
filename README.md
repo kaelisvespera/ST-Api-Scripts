@@ -1,6 +1,6 @@
 # ST-Api-Scripts
 
-SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文对应 **2.2.22**。
+SillyTavern（ST）与 TauriTavern 2.4（TT）的 API 配置管理器。本文对应 **2.2.23**。
 
 ## 使用
 
