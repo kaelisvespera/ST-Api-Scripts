@@ -192,6 +192,11 @@ function mountCatalogPanel(host, storage, connection) {
     marker.setAttribute('aria-hidden', 'true');
     return marker;
   }
+  function groupHeadingMarker(group) {
+    const slot = make('span', 'catalog-group-marker-slot');
+    slot.append(groupMarker(group));
+    return slot;
+  }
   function activeGroupKey({ entries, groups }) {
     const activeRow = entries.find(row => row.id === connection.activeRowId());
     if (!activeRow) return;
@@ -571,7 +576,7 @@ function mountCatalogPanel(host, storage, connection) {
       const title = make('span', 'catalog-group-title');
       if (!isUnassigned) {
         colorGroupHeading(header, section);
-        title.append(groupMarker(section));
+        title.append(groupHeadingMarker(section));
       }
       title.append(make('b', '', section.name), make('small', 'category-count', '(' + rows.length + ')'));
       label.append(title);
@@ -1191,7 +1196,10 @@ function mountCatalogPanel(host, storage, connection) {
           throw new Error('这条配置已变化，请关闭后重新选择。');
         }
         return plan.fill(current);
-      }, undefined, () => pane.dialog.close()), 'paste');
+      }, undefined, () => {
+        pane.dialog.close();
+        plan.afterFill?.();
+      }), 'paste');
       fill.setAttribute('aria-label', ['填入', title, keyLabel].filter(Boolean).join(' '));
       item.append(summary, fill);
       return item;
@@ -1215,7 +1223,7 @@ function mountCatalogPanel(host, storage, connection) {
         const title = make('b', 'catalog-fill-group-name', group.name);
         if (group.id !== unassigned) {
           colorGroupHeading(header, group);
-          header.append(groupMarker(group));
+          header.append(groupHeadingMarker(group));
         }
         const arrow = icon('chevron-right');
         arrow.classList.add('catalog-fill-group-arrow');

@@ -6,10 +6,57 @@ const { withBrowser } = require('./browser-fixture.cjs');
 
 const dialog = (page, name) => page.getByRole('dialog', { name, exact: true });
 const button = (pane, name) => pane.getByRole('button', { name, exact: true });
+const alignmentGroups = ['色点', 'Claude', 'Gemini', 'DeepSeek'].map((name, index) => ({
+  id: 'align-' + index, name: '对齐夹具 ' + name, color: '#3b82f6',
+  icon: index ? name.toLowerCase() : undefined,
+}));
+
+async function assertAlignedMarkers(pane, tab) {
+  const headings = pane.locator('summary.catalog-group-heading').filter({ hasText: '对齐夹具' });
+  for (const [mode, tint, ink] of [['light', '#f5f1ea', '#2f2a26'], ['dark', '#25262a', '#e9e6df']]) {
+    await tab.evaluate(([surface, text]) => {
+      document.documentElement.style.setProperty('--SmartThemeBlurTintColor', surface);
+      document.documentElement.style.setProperty('--SmartThemeBodyColor', text);
+    }, [tint, ink]);
+    await pane.and(tab.locator('[data-catalog-theme="' + mode + '"]')).waitFor();
+    const metrics = await headings.evaluateAll(elements => elements.map(heading => {
+      const name = heading.querySelector('b').getBoundingClientRect();
+      const rail = heading.querySelector('.catalog-group-rail').getBoundingClientRect();
+      const marker = heading.querySelector('.catalog-tag-icon, .category-color-dot');
+      const box = marker.getBoundingClientRect();
+      const css = getComputedStyle(marker);
+      return { label: name.left - rail.right, center: box.left + box.width / 2 - rail.right,
+        railGap: box.left - rail.right, labelGap: name.left - box.right,
+        width: box.width, height: box.height, fontSize: parseFloat(css.fontSize), mask: css.maskImage };
+    }));
+    assert.equal(metrics.length, alignmentGroups.length);
+    const [dot, ...icons] = metrics;
+    for (const marker of metrics) {
+      assert.ok(Math.abs(marker.label - dot.label) < 0.25, 'group names start in the same column');
+      assert.ok(Math.abs(marker.center - dot.center) < 0.25, 'dots and icons share a centerline');
+      assert.ok(marker.railGap >= 3 && marker.labelGap >= 3, 'markers keep clear of the rail and text');
+    }
+    assert.equal(dot.width, 10);
+    assert.equal(dot.height, 10);
+    for (const icon of icons) {
+      assert.ok(icon.mask !== 'none');
+      assert.ok(Math.abs(icon.width - icon.fontSize) < 0.1 && Math.abs(icon.height - icon.fontSize) < 0.1);
+    }
+  }
+}
 
 for (const mode of ['st', 'tt']) test(mode + ': tag icons can be created, changed and cleared independently of color', {
   timeout: 60000,
-}, () => withBrowser(mode, async ({ tab, open, flush, stores, assertConnection }) => {
+}, () => withBrowser(mode, async ({ tab, open, flush, stores, origin, assertConnection }) => {
+  if (mode === 'tt') {
+    const entries = alignmentGroups.map(group => ({ id: group.id, name: group.name, site: '示例站点', model: group.id,
+      source: 'custom', url: origin + '/v1', key: 'fixture-' + group.id, groupIds: [group.id] }));
+    const catalog = { format: 'st-api-manager-catalog', version: 2, groups: alignmentGroups, entries };
+    stores.set('one', { version: 1, values: {
+      st_api_manager_catalog_v2: JSON.stringify({ catalog, sync: { revision: null, pending: false } }),
+      st_api_manager_ui_v1: JSON.stringify({ collapsedGroups: alignmentGroups.map(group => group.id) }),
+    } });
+  }
   await tab.setViewportSize({ width: 320, height: 700 });
   await open();
   await tab.addStyleTag({ content: ':root{--mainFontSize:20px}' });
@@ -83,5 +130,29 @@ for (const mode of ['st', 'tt']) test(mode + ': tag icons can be created, change
   await flush();
   assert.equal(savedTag().icon, undefined);
   assert.equal(savedTag().color, color);
+  if (mode === 'tt') {
+    await button(tags, '取消').click();
+    await button(settings, '关闭').click();
+    for (const width of [320, 1280]) {
+      await tab.setViewportSize({ width, height: 800 });
+      await assertAlignedMarkers(main, tab);
+    }
+    await button(main, '关闭').click();
+    await tab.evaluate(() => {
+      const form = document.createElement('form');
+      form.id = 'fixture-icon-alignment-target';
+      form.innerHTML = '<label>API 地址<input type="url" name="apiUrl"></label>' +
+        '<label>API Key<input type="password" name="apiKey"></label>';
+      document.body.append(form);
+    });
+    const target = tab.locator('#fixture-icon-alignment-target');
+    await target.getByLabel('API 地址').click();
+    await button(target, '填入 API').click();
+    const picker = dialog(tab, '填入插件 API');
+    for (const width of [1280, 320]) {
+      await tab.setViewportSize({ width, height: 800 });
+      await assertAlignedMarkers(picker, tab);
+    }
+  }
   await assertConnection();
 }));

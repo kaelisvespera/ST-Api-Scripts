@@ -10,8 +10,10 @@ function mountCatalogFormFill(host, showPicker) {
   const excluded = ownUI + ', #openai_settings, #rm_api_block, #send_form, #chat, #send_textarea, '
     + '#api_settings, #api_connections, #extensions_url, #extensions_api_key, #custom_api_url_text, '
     + '#api_key_custom, #api_key_openai, #api_key_deepseek, #api_key_makersuite, [inert], [aria-hidden="true"]';
+  const myriadKnotsVectorScope = 'details#qqj-settings-vector-api.qqj-vector-api-settings';
   const scopeSelector = 'form, fieldset, dialog, [role="form"], [role="dialog"], .popup, .inline-drawer-content, '
-    + '[data-extension], [data-extension-id], [data-extension-name], [data-plugin], [data-plugin-id], [data-plugin-name]';
+    + '[data-extension], [data-extension-id], [data-extension-name], [data-plugin], [data-plugin-id], [data-plugin-name], '
+    + myriadKnotsVectorScope;
   const fieldLabels = { url: 'API 地址', key: 'API Key', model: '模型名', includeBody: '附加参数', excludeBody: '排除参数' };
   const extraKinds = ['includeBody', 'excludeBody'];
   const watchedRoots = new WeakSet();
@@ -25,6 +27,7 @@ function mountCatalogFormFill(host, showPicker) {
   }
 
   function scopeTitle(scope) {
+    if (scope?.matches?.(myriadKnotsVectorScope)) return '千千结 · 向量配置';
     return accessibleLabel(scope) || accessibleLabel(scope?.closest?.('dialog, [role="dialog"]'));
   }
 
@@ -65,6 +68,9 @@ function mountCatalogFormFill(host, showPicker) {
     if (apiKey && apiUrl) return undefined;
     if (apiKey) return autocomplete.includes('new-password') ? 'guarded-key' : 'key';
     if (apiUrl) return 'url';
+    // Myriad Knots labels its vector endpoint URL but renders a plain text input.
+    if (input.type === 'text' && hints.includes('url') &&
+      input.matches(myriadKnotsVectorScope + ' > .settings-sub-body > label.settings-field > input.settings-input')) return 'url';
     if (input.type === 'url' && hints.includes('url')) return 'plain-url';
     if (input.type === 'password' && hints.some(text => /^(?:key|密钥|秘钥)$/.test(text))) return 'plain-key';
     return undefined;
@@ -323,6 +329,13 @@ function mountCatalogFormFill(host, showPicker) {
         extraFields: extraKinds.filter(kind => extraTargets.has(kind)),
         scopeLabel,
         fill: row => fill(input, scope, parent, form, fields, modelTarget, extraTargets, row),
+        afterFill: scope?.matches?.(myriadKnotsVectorScope) ? () => {
+          // Removing the injected row on the next focus can move Save during a tap.
+          button.remove();
+          if (current?.button === button) current = undefined;
+          const save = scope.querySelector(':scope > .settings-sub-body > .qqj-vector-actions > button');
+          if (save?.textContent.trim() === '保存') save.focus();
+        } : undefined,
       });
     });
     anchor.after(button);

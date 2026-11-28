@@ -271,3 +271,105 @@ for (const [mode, name, layout] of shadowForms) test(mode + ': ' + name + ' shad
     [['input', selected.model], ['change', selected.model]]);
   await assertConnection();
 }, { hasTouch: true }));
+
+for (const [mode, hasTouch] of [['st', false], ['tt', true]]) {
+  test(mode + ': 千千结 vector draft fills URL, Key and model independently of the chat API', { timeout: 30000 }, () =>
+    withBrowser(mode, async ({ tab, open, stores, origin, assertConnection }) => {
+      const selected = {
+        id: 'vector', name: '向量服务', site: '示例向量站', source: 'custom',
+        url: origin + '/embedding/v1', key: 'fixture-vector-key', model: 'example/embedding-v2', groupIds: ['vector'],
+      };
+      const catalog = {
+        format: 'st-api-manager-catalog', version: 2, entries: [selected],
+        groups: [{ id: 'vector', name: '向量模型', color: '#3b82f6' }],
+      };
+      stores.set('one', { version: 1, values: { st_api_manager_catalog_v2: JSON.stringify({
+        catalog, sync: { revision: null, pending: false },
+      }) } });
+      await open();
+      await button(dialog(tab, 'API 管理器'), '关闭').click();
+
+      // 千千结 settings nest both drawers in the same open shadow root. The vector
+      // URL and model are plain text inputs, and a saved Key stays out of the draft.
+      await tab.evaluate(() => {
+        const host = document.createElement('div');
+        host.id = 'qqj-panel-host';
+        document.body.append(host);
+        const root = host.attachShadow({ mode: 'open' });
+        root.innerHTML = [
+          '<div class="panel"><details class="settings-group" id="qqj-settings-group-general" open>',
+          '<summary class="settings-group-summary"><h3>通用设置</h3></summary><div class="settings-group-body">',
+          '<details class="settings-sub qqj-api-editor" id="qqj-settings-api" open>',
+          '<summary class="settings-sub-summary"><h4>API 配置</h4></summary><div class="settings-sub-body">',
+          '<form class="qqj-api-editor-dialog" aria-label="聊天 API">',
+          '<label>API 地址<input type="url" value="https://chat.invalid/v1"></label>',
+          '<label>API Key<input type="password" value="fixture-chat-key"></label>',
+          '<label>模型<input type="text" value="fixture-chat-model"></label></form></div></details>',
+          '<details class="settings-sub qqj-vector-api-settings" id="qqj-settings-vector-api">',
+          '<summary class="settings-sub-summary"><h4>向量配置</h4></summary><div class="settings-sub-body">',
+          '<label class="setting-switch qqj-vector-enable"><span>开启向量召回</span><input type="checkbox" aria-label="开启向量召回" checked></label>',
+          '<label class="settings-field"><span>URL</span><input class="settings-input" value="https://old-vector.invalid/v1" placeholder="https://example.invalid/v1"></label>',
+          '<label class="settings-field"><span>Key</span><input class="settings-input" type="password" placeholder="已保存，留空保持不变"></label>',
+          '<label class="settings-field"><span>模型</span><input class="settings-input" value="previous-embedding" placeholder="previous-embedding"></label>',
+          '<div class="settings-actions qqj-vector-actions"><button type="button">保存</button><button type="button">测试</button>',
+          '<button type="button">建立索引</button><button type="button" hidden>取消</button></div></div></details></div></details></div>',
+        ].join('');
+        const vector = root.getElementById('qqj-settings-vector-api');
+        const fields = [...vector.querySelectorAll('input.settings-input')];
+        window.vectorFixture = {
+          saved: ['https://old-vector.invalid/v1', 'fixture-saved-vector-key', 'previous-embedding'],
+          actions: [],
+        };
+        for (const control of vector.querySelectorAll('button')) control.addEventListener('click', () => {
+          window.vectorFixture.actions.push(control.textContent);
+          if (control.textContent !== '保存') return;
+          const [url, key, model] = fields;
+          window.vectorFixture.saved = [url.value, key.value || window.vectorFixture.saved[1], model.value];
+          key.value = '';
+        });
+      });
+
+      const vector = tab.locator('#qqj-settings-vector-api');
+      const chat = tab.locator('#qqj-settings-api input');
+      await vector.locator('summary').click();
+      const url = vector.getByLabel('URL', { exact: true });
+      const key = vector.getByLabel('Key', { exact: true });
+      const model = vector.getByLabel('模型', { exact: true });
+      const trigger = button(vector, '填入 API');
+      if (hasTouch) {
+        await url.tap();
+        await trigger.tap({ timeout: 2500 });
+      } else {
+        await key.focus();
+        await trigger.waitFor({ timeout: 2500 });
+        await tab.keyboard.press('Tab');
+        assert.equal(await trigger.evaluate(node => node.matches(':focus')), true);
+        await tab.keyboard.press('Enter');
+      }
+      const picker = dialog(tab, '填入插件 API');
+      await picker.getByText(/千千结 · 向量配置/).waitFor();
+      await picker.getByText('向量模型', { exact: true }).waitFor();
+      assert.equal((await picker.innerText()).includes(selected.key), false);
+      await button(picker, /填入.*示例向量站/).click();
+      await picker.waitFor({ state: 'hidden' });
+
+      assert.deepEqual([await url.inputValue(), await key.inputValue(), await model.inputValue()],
+        [selected.url, selected.key, selected.model]);
+      assert.deepEqual(await chat.evaluateAll(inputs => inputs.map(input => input.value)),
+        ['https://chat.invalid/v1', 'fixture-chat-key', 'fixture-chat-model']);
+      assert.equal(await vector.getByRole('checkbox').isChecked(), true);
+      assert.deepEqual(await tab.evaluate(() => window.vectorFixture), {
+        saved: ['https://old-vector.invalid/v1', 'fixture-saved-vector-key', 'previous-embedding'],
+        actions: [],
+      });
+      const save = vector.getByRole('button', { name: '保存', exact: true });
+      await save.and(vector.locator('button:focus')).waitFor({ timeout: 2500 });
+      assert.equal(await trigger.count(), 0);
+      await (hasTouch ? save.tap() : save.click());
+      assert.deepEqual(await tab.evaluate(() => window.vectorFixture), {
+        saved: [selected.url, selected.key, selected.model], actions: ['保存'],
+      });
+      assert.equal(await key.inputValue(), '');
+      await assertConnection();
+    }, { hasTouch, viewport: hasTouch ? { width: 390, height: 760 } : { width: 950, height: 800 } }));
+}
