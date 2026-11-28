@@ -89,7 +89,6 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
   const activeGroupBadge = activeGroups.locator('.catalog-group-active-badge');
   const otherDrawer = main.locator('details[data-group-id="b"]');
   const checkHighlight = async (theme, followsHost) => {
-    const accent = theme === 'light' ? [18, 99, 71, 255] : [136, 223, 171, 255];
     await tab.waitForFunction(({ theme, followsHost }) => {
       const dialog = document.querySelector('dialog.st-api-manager[open]');
       return dialog?.dataset.catalogTheme === theme && dialog.dataset.catalogFollowHost === String(followsHost);
@@ -137,6 +136,7 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
         groupFill, ordinaryGroupFill, groupBadgeFill, groupBorder,
         groupContrast: ratio(rgba(groupBadgeStyle.color), groupBadgeFill),
         groupLabelContrast: ratio(rgba(getComputedStyle(heading.querySelector('b')).color), groupFill),
+        groupBadgeLightOnDark: luminance(rgba(groupBadgeStyle.color)) > luminance(groupBadgeFill),
         groupBorderContrast: Math.min(ratio(groupBorder, groupFill), ratio(groupBorder, ordinaryGroupFill)),
         groupFits: heading.scrollWidth <= heading.clientWidth + 1 && groupBadgeBox.right <= groupBox.right &&
           groupBadgeBox.bottom <= groupBox.bottom && [...heading.querySelectorAll('button, .inline-drawer-icon')]
@@ -147,22 +147,37 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
         outlineWidth: cardStyle.outlineWidth, outlineOffset: cardStyle.outlineOffset,
         stripeWidth: stripe.inlineSize, pointerEvents: stripe.pointerEvents,
         textContrast: ratio(rgba(badgeStyle.color), badgeFill),
+        badgeLuminance: luminance(badgeFill),
+        badgeLightOnDark: luminance(rgba(badgeStyle.color)) > luminance(badgeFill),
+        borderLuminance: luminance(groupBorder),
+        cardBorderLuminance: luminance(rgba(cardStyle.borderInlineStartColor)),
         cardTextContrast: ratio(rgba(cardStyle.color), fill),
         stripeContrast: Math.min(ratio(stripeColor, fill), ratio(stripeColor, ordinaryFill)),
         fits: element.scrollWidth <= element.clientWidth,
       };
     });
-    assert.deepEqual([colors.badgeFill, colors.stroke, colors.outline, colors.stripeColor], Array(4).fill(accent));
-    assert.deepEqual([colors.outlineWidth, colors.outlineOffset, colors.stripeWidth, colors.pointerEvents],
-      ['2px', '-2px', '4px', 'none']);
+    if (theme === 'dark') {
+      assert.ok(colors.badgeLuminance < .2 && colors.badgeLightOnDark && colors.groupBadgeLightOnDark,
+        'phone badges are dark with readable light text: ' + JSON.stringify(colors));
+      assert.ok(colors.borderLuminance < .45 && colors.cardBorderLuminance < .45,
+        'phone selection borders use a muted accent: ' + JSON.stringify(colors));
+      assert.ok(parseFloat(colors.outlineWidth) < 2 || parseFloat(colors.stripeWidth) < 4,
+        'the selected model outline or stripe is thinner on a dark phone');
+    } else {
+      const accent = [18, 99, 71, 255];
+      assert.deepEqual([colors.badgeFill, colors.stroke, colors.outline, colors.stripeColor], Array(4).fill(accent));
+      assert.deepEqual([colors.outlineWidth, colors.outlineOffset, colors.stripeWidth], ['2px', '-2px', '4px']);
+      assert.deepEqual(colors.groupBorder, accent);
+      assert.ok(colors.groupBorderContrast >= 3 && colors.stripeContrast >= 3, JSON.stringify(colors));
+    }
+    assert.equal(colors.pointerEvents, 'none');
+    assert.deepEqual(colors.groupBadgeFill, colors.badgeFill);
     assert.notDeepEqual(colors.fill, colors.ordinaryFill);
-    assert.deepEqual([colors.groupBadgeFill, colors.groupBorder], [accent, accent]);
     assert.equal(colors.groupFill[3], 255);
     assert.notDeepEqual(colors.groupFill, colors.ordinaryGroupFill);
-    assert.ok(colors.groupContrast >= 4.5 && colors.groupLabelContrast >= 4.5 &&
-      colors.groupBorderContrast >= 3 && colors.groupFits, JSON.stringify(colors));
+    assert.ok(colors.groupContrast >= 4.5 && colors.groupLabelContrast >= 4.5 && colors.groupFits, JSON.stringify(colors));
     assert.ok(colors.badgeSize >= 13 && colors.textContrast >= 4.5 && colors.cardTextContrast >= 4.5
-      && colors.stripeContrast >= 3 && colors.fits, JSON.stringify(colors));
+      && colors.fits, JSON.stringify(colors));
   };
 
   assert.equal(await badge.locator('.fa-check[aria-hidden="true"]').count(), 1);
@@ -188,13 +203,40 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
     await tab.waitForFunction(previousTone => document.querySelector('dialog.st-api-manager[open]')
       ?.style.getPropertyValue('--catalog-host-tint') !== previousTone, previousTint);
     await checkHighlight(theme, true);
-    await tab.setViewportSize({ width: 1280, height: 900 });
-    await checkHighlight(theme, true);
-    await tab.setViewportSize({ width: mode === 'st' ? 320 : 390, height: 820 });
   }
+
+  // The glass host uses an ID-level selector for its popup edge.
+  await tab.addStyleTag({ content: `
+    html body dialog.popup:not(#loader) {
+      box-shadow: 0 0 16px white !important;
+      filter: drop-shadow(0 0 10px white) !important;
+      backdrop-filter: blur(20px) !important;
+      outline: 2px solid white !important;
+    }
+  ` });
+  await tab.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'popup';
+    dialog.open = true;
+    dialog.id = 'fixture-halo-popup';
+    document.body.append(dialog);
+  });
+  const readHalo = dialog => dialog.evaluate(element => {
+    const style = getComputedStyle(element);
+    return [style.boxShadow, style.filter, style.backdropFilter, style.outlineStyle];
+  });
+  const noHalo = ['none', 'none', 'none', 'none'];
+  assert.deepEqual(await readHalo(main), noHalo, 'the mobile manager panel has no host halo');
 
   await main.getByRole('button', { name: '设置', exact: true }).click();
   const settings = tab.getByRole('dialog', { name: '设置', exact: true });
+  assert.deepEqual(await readHalo(settings), noHalo, 'the mobile settings dialog has no host halo');
+  const hostHalo = await readHalo(tab.locator('#fixture-halo-popup'));
+  assert.notEqual(hostHalo[0], 'none');
+  assert.notEqual(hostHalo[1], 'none');
+  assert.notEqual(hostHalo[2], 'none');
+  assert.equal(hostHalo[3], 'solid');
+  await tab.locator('#fixture-halo-popup').evaluate(element => element.remove());
   await settings.getByRole('button', { name: '主题设置', exact: true }).click();
   const appearance = tab.getByRole('dialog', { name: '主题设置', exact: true });
   await appearance.getByLabel('跟随 ST/TT 主题', { exact: true }).press('Space');
@@ -202,6 +244,21 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
   await appearance.getByText('夜间', { exact: true }).click();
   await checkHighlight('dark', false);
   await appearance.getByRole('button', { name: '关闭', exact: true }).click();
+  const readRadius = drawer => drawer.locator('summary').evaluate(node => getComputedStyle(node).borderTopLeftRadius);
+  const radius = await readRadius(drawer);
+  assert.ok(parseFloat(radius) > 0);
+  await settings.getByLabel('展开分组标题吸顶', { exact: true }).setChecked(true);
+  await main.locator('.catalog-sticky-expanded').waitFor();
+  await settings.getByRole('button', { name: '关闭', exact: true }).click();
+  assert.equal(await readRadius(drawer), radius, 'the applied group keeps its radius when sticky');
+  assert.equal(await readRadius(otherDrawer), radius, 'the ordinary group keeps its radius when sticky');
+  await drawer.locator('summary b').click();
+  assert.equal(await readRadius(drawer), radius, 'the applied group keeps its radius when collapsed');
+  await drawer.locator('summary b').click();
+  assert.equal(await readRadius(drawer), radius, 'the applied group keeps its radius when expanded');
+  await main.getByRole('button', { name: '设置', exact: true }).click();
+  await settings.getByLabel('展开分组标题吸顶', { exact: true }).setChecked(false);
+  await main.locator('.catalog-sticky-expanded').waitFor({ state: 'detached' });
   await settings.getByRole('button', { name: '关闭', exact: true }).click();
 
   await card.getByRole('button', { name: '应用', exact: true }).click();
@@ -227,7 +284,7 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
     return header.scrollWidth <= header.clientWidth + 1 && rect.right <= control.left + 1 &&
       rect.height > 0 && rect.width > 0;
   }), 'the applied badge and sort control fit beside a long label');
-}));
+}, { hasTouch: true }));
 
 for (const mode of ['st','tt']) test(mode+': five actions, expandable text and host themes fit narrow screens', {timeout:60000},()=>withBrowser(mode,async({tab,open,stores,origin,assertConnection,flush})=>{
   const long='完整长名称与备注'.repeat(14);
@@ -293,5 +350,11 @@ for (const mode of ['st','tt']) test(mode+': five actions, expandable text and h
   await card.locator('.catalog-card-site').click();
   await card.getByText('已应用',{exact:true}).waitFor();
   assert.equal(await tab.evaluate(()=>hostConnection.model),catalog.entries[0].model);
+  await tab.setViewportSize({ width: 1280, height: 900 });
+  const desktopAccent = 'rgb(136, 223, 171)';
+  const desktopBadge = badge => badge.evaluate(node => getComputedStyle(node).backgroundColor);
+  assert.equal(await desktopBadge(card.locator('.active-badge-sm')), desktopAccent);
+  assert.equal(await desktopBadge(main.locator('.catalog-group-active-badge')), desktopAccent);
+  assert.equal(await card.evaluate(node => getComputedStyle(node).outlineWidth), '2px');
   await flush();assert.deepEqual(JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog.entries,catalog.entries);
 }));

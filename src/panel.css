@@ -277,7 +277,7 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .active-badge-sm {
   display: inline-flex; align-items: center; gap: 4px; min-height: 24px;
   padding: 2px 8px; border-radius: 5px; white-space: nowrap;
-  background-color: var(--catalog-applied-accent); color: var(--catalog-applied-badge-ink);
+  background-color: var(--catalog-applied-badge-fill, var(--catalog-applied-accent)); color: var(--catalog-applied-badge-ink);
   font-size: max(13px, var(--st-orb-font-sm)); font-weight: 700; line-height: 1.2;
 }
 @media (max-width: 480px) {
@@ -935,3 +935,50 @@ dialog.st-api-manager.popup.st-api-manager-native-dialog .catalog-settings-entry
 .st-api-manager .catalog-theme-opacity-value { color: var(--catalog-muted-ink); font-variant-numeric: tabular-nums; }
 .st-api-manager .catalog-theme-opacity input[type="range"] { inline-size: 100%; min-height: 44px; margin: 0; }
 .st-api-manager .catalog-theme-hint { color: var(--catalog-muted-ink); margin: 0; line-height: 1.45; font-size: var(--st-orb-font-sm); }
+
+@media (hover: none) and (pointer: coarse) {
+  /* Glass themes can put their popup shadow in an important ID-specific rule. */
+  dialog.st-api-manager.popup.st-api-manager-native-dialog:not(#loader) {
+    box-shadow: none !important;
+    filter: none !important;
+    outline: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  dialog.st-api-manager.popup.st-api-manager-native-dialog:not(#loader)[data-catalog-theme="dark"] {
+    border-color: var(--catalog-line) !important;
+    --catalog-applied-accent: #759b89;
+    --catalog-applied-badge-fill: #30483e;
+    --catalog-applied-badge-ink: #d1e8d9;
+  }
+  dialog.st-api-manager.popup.st-api-manager-native-dialog[data-catalog-theme="dark"] summary.catalog-group-active {
+    box-shadow: none !important;
+  }
+  dialog.st-api-manager.popup.st-api-manager-native-dialog[data-catalog-theme="dark"] .catalog-config-card.secretKeyManagerItem--applied {
+    outline: none;
+  }
+  .st-api-manager[data-catalog-theme="dark"] .catalog-config-card.secretKeyManagerItem--applied::before {
+    inline-size: 3px;
+  }
+  .st-api-manager .catalog-sticky-expanded > details[open]:not([data-catalog-empty]) > summary.catalog-group-heading {
+    border-radius: 5px !important;
+  }
+  /* The flat backing covers the scroll lane, including the four rounded corners. */
+  .st-api-manager .catalog-sticky-expanded > details[open]:not([data-catalog-empty]) > summary.catalog-group-heading::before,
+  .st-api-manager .catalog-sticky-expanded > details[open]:not([data-catalog-empty]) > summary.catalog-group-heading::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    pointer-events: none;
+  }
+  .st-api-manager .catalog-sticky-expanded > details[open]:not([data-catalog-empty]) > summary.catalog-group-heading::before {
+    background: var(--catalog-reading-surface);
+  }
+  .st-api-manager .catalog-sticky-expanded > details[open]:not([data-catalog-empty]) > summary.catalog-group-heading::after {
+    border: inherit;
+    border-radius: inherit;
+    background: var(--catalog-group-heading-fill, var(--catalog-group-surface));
+    box-shadow: inherit;
+  }
+}

@@ -114,6 +114,22 @@ for (const host of ['st', 'tt']) test(host + ': each expanded group header stick
     await scrollTo(Math.ceil(firstBCardTop) + 8);
     await assertAtTop('乙');
     const box = await header('乙').boundingBox();
+    const mobile = await tab.evaluate(() => matchMedia('(hover: none) and (pointer: coarse)').matches);
+    const radius = await header('乙').evaluate(node => getComputedStyle(node).borderTopLeftRadius);
+    assert.equal(radius, mobile ? '5px' : '0px', 'a phone keeps rounded corners and the desktop keeps its existing shape');
+    let corner;
+    if (mobile) {
+      // Move the existing card under the rounded corner too, beyond the normal card inset.
+      await firstBCard.evaluate((node, headerLeft) => {
+        const inset = node.getBoundingClientRect().left - headerLeft + 1;
+        node.style.setProperty('margin-inline-start', -inset + 'px', 'important');
+        node.style.setProperty('border-radius', '0', 'important');
+      }, box.x);
+      corner = { x: Math.ceil(box.x), y: Math.ceil(box.y), width: 4, height: 4 };
+      assert.ok(await firstBCard.evaluate((node, clip) =>
+        document.elementsFromPoint(clip.x + .5, clip.y + .5).includes(node), corner),
+      'the changing card must also overlap the rounded corner');
+    }
     const covered = { x: Math.ceil(box.x + box.width / 2), y: Math.ceil(box.y),
       width: 20, height: Math.floor(box.y + box.height) - Math.ceil(box.y) };
     const exposed = { x: covered.x, y: Math.ceil(box.y + box.height) + 4, width: 20, height: 8 };
@@ -126,11 +142,15 @@ for (const host of ['st', 'tt']) test(host + ': each expanded group header stick
     await paintCard('#ff00ff');
     const coveredBefore = await tab.screenshot({ clip: covered });
     const exposedBefore = await tab.screenshot({ clip: exposed });
+    const cornerBefore = corner && await tab.screenshot({ clip: corner });
     await paintCard('#00ffff');
     assert.ok(!exposedBefore.equals(await tab.screenshot({ clip: exposed })), 'exposed card pixels must change');
     assert.ok(coveredBefore.equals(await tab.screenshot({ clip: covered })), 'the sticky title fully covers the scrolling card');
+    if (corner) assert.ok(cornerBefore.equals(await tab.screenshot({ clip: corner })), 'the rounded corner also covers the scrolling card');
     await firstBCard.evaluate(node => {
-      for (const property of ['background', 'position', 'z-index']) node.style.removeProperty(property);
+      for (const property of ['background', 'position', 'z-index', 'margin-inline-start', 'border-radius']) {
+        node.style.removeProperty(property);
+      }
     });
     await translucentTheme.evaluate(node => node.remove());
 
