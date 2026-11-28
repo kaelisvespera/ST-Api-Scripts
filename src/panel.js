@@ -123,7 +123,7 @@ function mountCatalogPanel(host, storage, connection) {
     for (const check of disclosureChecks.values()) check();
   });
   const groupKey = group => group?.id ?? unassigned;
-  const focusSortToggle = id => [...main.scroll.querySelectorAll('.catalog-sort-toggle')]
+  const focusSortToggle = id => [...main.dialog.querySelectorAll('.catalog-sort-toggle')]
     .find(control => control.dataset.groupId === (id === unassigned ? '' : id))?.focus();
   main.dialog.addEventListener('cancel', event => {
     if (sortingGroup === undefined || busy) return;
@@ -161,7 +161,6 @@ function mountCatalogPanel(host, storage, connection) {
   mainSearch.addEventListener('input', updateMainSearch);
   mainSearch.addEventListener('compositionend', updateMainSearch);
   const fixedGroup = make('div', 'catalog-fixed-group');
-  fixedGroup.setAttribute('role', 'status');
   fixedGroup.hidden = true;
   main.heading.append(toolbar, mainSearch, fixedGroup);
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
@@ -179,15 +178,12 @@ function mountCatalogPanel(host, storage, connection) {
     return (knownGroup ? suffix : row.name).slice(0, -model.length).trim();
   }
   const groupColor = group => /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#3b82f6';
-  function groupRail(group) {
+  function colorGroupHeading(heading, group) {
+    heading.classList.add('catalog-colored-group-heading');
     const rail = make('span', 'catalog-group-rail');
     rail.style.backgroundColor = groupColor(group);
     rail.setAttribute('aria-hidden', 'true');
-    return rail;
-  }
-  function colorGroupHeading(heading, group) {
-    heading.classList.add('catalog-colored-group-heading');
-    heading.append(groupRail(group));
+    heading.append(rail);
   }
   function groupMarker(group) {
     const iconName = group.icon;
@@ -198,22 +194,13 @@ function mountCatalogPanel(host, storage, connection) {
     marker.setAttribute('aria-hidden', 'true');
     return marker;
   }
-  let displayedGroup;
-  function updateFixedGroup({ entries, groups }) {
-    let group;
-    if (storage.pinAppliedGroup) {
-      const activeRow = entries.find(row => row.id === connection.activeRowId());
-      const appliedGroup = connection.activeGroupId();
-      // A legacy application lacks a source tag. Prefer the first tag in catalog order.
-      group = groups.find(candidate => activeRow?.groupIds.includes(candidate.id) &&
-        (appliedGroup === undefined || appliedGroup === candidate.id));
-    }
-    if (group === displayedGroup) return;
-    displayedGroup = group;
-    fixedGroup.hidden = !group;
-    fixedGroup.replaceChildren();
-    if (group) fixedGroup.append(groupRail(group), groupMarker(group),
-      make('span', 'catalog-fixed-group-context', '当前应用'), make('strong', 'catalog-fixed-group-name', group.name));
+  function fixedTag({ entries, groups }) {
+    if (!storage.pinAppliedGroup) return;
+    const activeRow = entries.find(row => row.id === connection.activeRowId());
+    const appliedGroup = connection.activeGroupId();
+    // A legacy application lacks a source tag. Prefer the first tag in catalog order.
+    return groups.find(group => activeRow?.groupIds.includes(group.id) &&
+      (appliedGroup === undefined || appliedGroup === group.id));
   }
   function tagIconPicker(selection) {
     const field = make('fieldset', 'catalog-tag-icon-picker');
@@ -421,7 +408,7 @@ function mountCatalogPanel(host, storage, connection) {
     wrapper.append(actions);
     return wrapper;
   }
-  function rowNode(row, group, presentation) {
+  function rowNode(row, group, presentation, drawer) {
     const card = make('div', 'secretKeyManagerItem catalog-config-card');
     card.dataset.entryId = row.id;
     card.dataset.groupId = group?.id ?? '';
@@ -463,7 +450,7 @@ function mountCatalogPanel(host, storage, connection) {
       ...notes.querySelectorAll('dd')];
     const hasLineBreak = previewFields.some(field => /[\r\n]/.test(field.textContent.trim()));
     const checkDisclosure = () => {
-      if (!main.dialog.open || !card.closest('details')?.open) return;
+      if (!main.dialog.open || !drawer.open) return;
       const expanded = expandedRows.has(expansionKey);
       // Single-line text can extend past the line box vertically without hiding any characters.
       const canExpand = expanded || Boolean(originalTitle) || hasLineBreak
@@ -536,7 +523,8 @@ function mountCatalogPanel(host, storage, connection) {
     resetDisclosures();
     const catalog = storage.catalog;
     const { entries, groups } = catalog;
-    updateFixedGroup(catalog);
+    const dockedGroup = fixedTag(catalog);
+    let dockedDrawer;
     if (sortingGroup !== undefined && sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)) {
       sortingGroup = undefined;
     }
@@ -559,8 +547,10 @@ function mountCatalogPanel(host, storage, connection) {
       const orderedRows = orderedGroupEntries(catalog, isUnassigned ? null : section.id);
       const rows = matching ? orderedRows.filter(row => matching.has(row.id)) : orderedRows;
       if (sortingGroup === section.id && (!rows.length || groupCollapsed.has(section.id))) sortingGroup = undefined;
-      if (!rows.length && (matching || isUnassigned)) continue;
+      const docked = section === dockedGroup;
+      if (!docked && !rows.length && (matching || isUnassigned)) continue;
       const drawer = make('details', 'inline-drawer');
+      drawer.dataset.groupId = isUnassigned ? '' : section.id;
       drawer.open = !groupCollapsed.has(section.id);
       // Native details owns the state. The host delegates .inline-drawer-toggle
       // and would independently hide the same content with inline styles.
@@ -580,6 +570,8 @@ function mountCatalogPanel(host, storage, connection) {
         sortingGroup = sortingGroup === section.id ? undefined : section.id;
         if (sortingGroup !== undefined) groupCollapsed.delete(section.id);
         refresh();
+        if (docked && sortingGroup === section.id) main.scroll.querySelector('.catalog-docked-body')
+          ?.scrollIntoView({ block: 'start', behavior: 'instant' });
         focusSortToggle(section.id);
       }, sortingGroup === section.id ? 'check' : 'sort');
       sortToggle.classList.add('catalog-sort-toggle');
@@ -587,12 +579,15 @@ function mountCatalogPanel(host, storage, connection) {
       sortToggle.setAttribute('aria-pressed', String(sortingGroup === section.id));
       sortToggle.disabled = rows.length < 2 && sortingGroup !== section.id;
       header.append(label, sortToggle, arrow);
+      const wrap = make('div', 'inline-drawer-content');
       drawer.addEventListener('toggle', () => {
         if (!drawer.isConnected) return;
         const changed = groupCollapsed.has(section.id) === drawer.open;
+        if (docked) wrap.hidden = !drawer.open || !rows.length;
         if (drawer.open) {
           groupCollapsed.delete(section.id);
           for (const card of cards.children) disclosureChecks.get(card)?.();
+          if (docked && changed && rows.length) wrap.scrollIntoView({ block: 'start', behavior: 'instant' });
         } else {
           groupCollapsed.add(section.id);
           if (sortingGroup === section.id) {
@@ -606,9 +601,8 @@ function mountCatalogPanel(host, storage, connection) {
         if (!matching && changed) void storage.setGroupCollapsed(isUnassigned ? null : section.id, !drawer.open)
           .catch(error => { main.status.textContent = error.message; });
       });
-      const wrap = make('div', 'inline-drawer-content');
       const cards = make('div', 'secretKeyManagerList');
-      if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, presentations.get(row.id))));
+      if (rows.length) cards.append(...rows.map(row => rowNode(row, isUnassigned ? undefined : section, presentations.get(row.id), drawer)));
       else cards.append(make('p', 'st-orb-empty-state', '此标签暂无配置'));
       if (rows.length && sortingGroup === section.id) sortable(main, cards, rows.map(row => ({ id: row.id, name: row.model || row.site })), (ids, movedId) => {
         save(main, catalog => reorderGroupEntries(catalog, isUnassigned ? null : section.id, ids),
@@ -619,12 +613,26 @@ function mountCatalogPanel(host, storage, connection) {
       });
       if (sortingGroup === section.id) wrap.append(make('p', 'catalog-sort-help', '拖动排序柄或使用上下按钮、方向键调整，仅影响当前分组；每次移动自动保存。'));
       wrap.append(cards);
-      drawer.append(header, wrap);
-      list.append(drawer);
+      drawer.append(header);
+      if (docked) {
+        // Keep the native summary and its controls together. Its cards keep their list slot.
+        wrap.id = 'st-api-manager-docked-group-content';
+        wrap.classList.add('catalog-docked-body');
+        wrap.dataset.groupId = section.id;
+        wrap.hidden = !drawer.open || !rows.length;
+        header.setAttribute('aria-controls', wrap.id);
+        dockedDrawer = drawer;
+        list.append(wrap);
+      } else {
+        drawer.append(wrap);
+        list.append(drawer);
+      }
     }
-    if (!list.childElementCount) list.append(make('p', 'api-keys-empty',
+    if (!list.childElementCount || matching?.size === 0) list.append(make('p', 'api-keys-empty',
       matching ? '没有匹配的模型，试试其他关键词。' : '暂无 API 配置'));
     main.scroll.replaceChildren(panel);
+    fixedGroup.replaceChildren(...(dockedDrawer ? [dockedDrawer] : []));
+    fixedGroup.hidden = !dockedDrawer;
   }
   function manager() {
     const pane = popup('API 管理');
@@ -698,7 +706,7 @@ function mountCatalogPanel(host, storage, connection) {
     pin.checked = storage.pinAppliedGroup;
     pinLabel.append(make('span', '', '固定当前应用标签'), pin);
     pin.addEventListener('change', async () => {
-      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, () => updateFixedGroup(storage.catalog));
+      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, refresh);
       pin.checked = storage.pinAppliedGroup;
       if (pane.dialog.open) pin.focus({ preventScroll: true });
     });

@@ -6,7 +6,7 @@ const { withBrowser } = require('./browser-fixture.cjs');
 const catalogKey = 'st_api_manager_catalog_v2';
 const uiKey = 'st_api_manager_ui_v1';
 const connectionKey = 'st_api_manager_connection_v2';
-const originalOrder = ['未分类', '标签甲', '标签乙', '标签丙'];
+const originalOrder = ['', '甲', '乙', '丙'];
 const pinLabel = '固定当前应用标签';
 
 for (const host of ['st', 'tt']) test(host + ': the last successfully applied tag stays visible while groups scroll',
@@ -39,15 +39,10 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
     const main = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
     const settings = tab.getByRole('dialog', { name: '设置', exact: true });
     const button = (pane, name) => pane.getByRole('button', { name, exact: true });
-    const section = name => main.locator('.api-config-list > details').filter({
-      has: tab.locator('summary').getByText(name, { exact: true }),
-    });
-    const card = (name, id) => section(name).locator('.catalog-config-card[data-entry-id="' + id + '"]');
-    const order = () => main.locator('.api-config-list > details > summary b').allTextContents();
-    const waitOrder = expected => tab.waitForFunction(expected => {
-      const titles = document.querySelectorAll('dialog[open] .api-config-list > details > summary b');
-      return JSON.stringify([...titles].map(title => title.textContent)) === JSON.stringify(expected);
-    }, expected);
+    const section = id => main.locator('.api-config-list > [data-group-id="' + id + '"]');
+    const card = (groupId, id) => section(groupId).locator('.catalog-config-card[data-entry-id="' + id + '"]');
+    const order = () => main.locator('.api-config-list > [data-group-id]')
+      .evaluateAll(items => items.map(item => item.dataset.groupId));
     const pin = settings.getByLabel(pinLabel, { exact: true });
     const setPin = async (enabled, expectedBefore) => {
       await button(main, '设置').click();
@@ -55,15 +50,27 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
       await pin.setChecked(enabled);
       await button(settings, '关闭').click();
     };
-    const applyButton = (name, id) => button(card(name, id), '应用');
-    const apply = (name, id) => applyButton(name, id).click();
+    const applyButton = (groupId, id) => button(card(groupId, id), '应用');
+    const apply = (groupId, id) => applyButton(groupId, id).click();
     const scroller = main.locator('.popup-scroll-content');
-    const fixed = main.locator('.catalog-fixed-group[role="status"]');
+    const fixed = main.locator('.catalog-fixed-group');
+    const fixedHeader = fixed.locator('details > summary.inline-drawer-header.catalog-group-heading');
     const assertScrolled = async () => assert.ok(await scroller.evaluate(node => node.scrollTop > node.clientHeight));
-    const assertFixed = async name => {
-      await fixed.getByText(name, { exact: true }).waitFor();
-      assert.equal(await fixed.locator('.catalog-fixed-group-name').textContent(), name);
-      assert.equal(await fixed.getByText('当前应用', { exact: true }).isVisible(), true);
+    const assertFixed = async id => {
+      const name = '标签' + id;
+      await fixedHeader.getByText(name, { exact: true }).waitFor();
+      assert.equal(await main.getByText(name, { exact: true }).count(), 1);
+      assert.equal(await main.getByText('当前应用', { exact: true }).count(), 0);
+      assert.equal(await fixed.getAttribute('role'), null);
+      assert.equal(await fixedHeader.evaluate(node => node.parentElement.dataset.groupId), id);
+      assert.equal(await fixedHeader.getAttribute('aria-controls'), 'st-api-manager-docked-group-content');
+      assert.equal(await section(id).getAttribute('id'), 'st-api-manager-docked-group-content');
+      assert.ok(await section(id).evaluate(node => node.matches('div.catalog-docked-body')));
+      assert.equal(await fixedHeader.locator('.category-count').textContent(),
+        '(' + await section(id).locator('.catalog-config-card').count() + ')');
+      assert.equal(await fixedHeader.locator('.catalog-group-rail').evaluate(node => getComputedStyle(node).backgroundColor),
+        'rgb(53, 120, 171)');
+      assert.equal(await fixedHeader.locator('.category-color-dot').count(), 1);
       const geometry = await fixed.evaluate(node => {
         const dialog = node.closest('dialog');
         const scroll = dialog.querySelector('.popup-scroll-content');
@@ -76,29 +83,42 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
       assert.ok(geometry.top >= geometry.searchBottom - 1 && geometry.bottom <= geometry.scrollTopEdge + 1, JSON.stringify(geometry));
       return geometry.top;
     };
-    const remainsCollapsed = () => section('标签丙').evaluate(element => !element.open);
-    const orderWithinB = () => section('标签乙').locator('.catalog-config-card')
+    const remainsCollapsed = () => section('丙').evaluate(element => !element.open);
+    const orderWithinB = () => section('乙').locator('.catalog-config-card')
       .evaluateAll(cards => cards.map(row => row.dataset.entryId));
 
     assert.deepEqual(await order(), originalOrder);
     assert.equal(await remainsCollapsed(), true);
 
     // An application while the preference is off still supplies the current tag.
-    await apply('标签乙', 'multi');
-    await card('标签乙', 'multi').getByText('已应用', { exact: true }).waitFor();
+    await apply('乙', 'multi');
+    await card('乙', 'multi').getByText('已应用', { exact: true }).waitFor();
     assert.deepEqual(await order(), originalOrder);
     assert.equal(await fixed.isVisible(), false);
     await assertScrolled();
     await setPin(true, false);
-    await assertFixed('标签乙');
+    await assertFixed('乙');
     await assertScrolled();
     assert.deepEqual(await order(), originalOrder);
     assert.equal(await remainsCollapsed(), true);
     assert.deepEqual(await orderWithinB(), groupOrders[0].entryIds);
 
-    // Scroll from the beginning through other groups without moving the status bar.
+    // The docked original bar still controls its cards and their sort mode.
+    await fixedHeader.press('Space');
+    await section('乙').waitFor({ state: 'hidden' });
+    assert.equal(await fixedHeader.locator('.fa-circle-chevron-down').count(), 1);
+    await fixedHeader.press('Enter');
+    await section('乙').waitFor();
+    assert.equal(await fixedHeader.locator('.fa-circle-chevron-up').count(), 1);
+    await button(fixedHeader, '排序').click();
+    await section('乙').getByRole('button', { name: '拖动排序：second', exact: true }).waitFor();
+    await button(fixedHeader, '完成').click();
+    await section('乙').getByRole('button', { name: '拖动排序：second', exact: true }).waitFor({ state: 'hidden' });
+    assert.deepEqual(await orderWithinB(), groupOrders[0].entryIds);
+
+    // Scroll from the beginning through other groups without moving the original header.
     await scroller.evaluate(node => { node.scrollTop = 0; });
-    const beforeWheel = await assertFixed('标签乙');
+    const beforeWheel = await assertFixed('乙');
     const scrollBox = await scroller.boundingBox();
     await tab.mouse.move(scrollBox.x + scrollBox.width / 2, scrollBox.y + scrollBox.height / 2);
     await tab.mouse.wheel(0, 900);
@@ -106,16 +126,16 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
       const scroll = document.querySelector('dialog[open] .popup-scroll-content');
       return scroll.scrollTop > scroll.clientHeight;
     });
-    assert.ok(Math.abs(await assertFixed('标签乙') - beforeWheel) <= 1);
+    assert.ok(Math.abs(await assertFixed('乙') - beforeWheel) <= 1);
 
     await button(main, '关闭').click();
     await tab.locator('#st-api-manager-extension-button').click();
-    await assertFixed('标签乙');
+    await assertFixed('乙');
     assert.deepEqual(await order(), originalOrder);
 
     await flush();
     await open();
-    await assertFixed('标签乙');
+    await assertFixed('乙');
     assert.deepEqual(await order(), originalOrder);
     await button(main, '设置').click();
     assert.equal(await pin.isChecked(), true);
@@ -123,23 +143,23 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
     assert.equal(await remainsCollapsed(), true);
 
     // The same model can set a different tag from its actual clicked row.
-    await apply('标签甲', 'multi');
-    await assertFixed('标签甲');
+    await apply('甲', 'multi');
+    await assertFixed('甲');
     assert.deepEqual(await order(), originalOrder);
     await assertScrolled();
-    assert.ok(await applyButton('标签甲', 'multi').evaluate(node => document.activeElement === node));
-    await apply('标签乙', 'missing-key');
+    assert.ok(await applyButton('甲', 'multi').evaluate(node => document.activeElement === node));
+    await apply('乙', 'missing-key');
     await main.getByText(/这条配置没有密钥/).waitFor();
     assert.deepEqual(await order(), originalOrder);
-    await assertFixed('标签甲');
+    await assertFixed('甲');
 
     await setPin(false, true);
-    await fixed.waitFor({ state: 'hidden' });
+    await fixedHeader.waitFor({ state: 'hidden' });
     assert.deepEqual(await order(), originalOrder);
     await setPin(true, false);
-    await assertFixed('标签甲');
-    await apply('未分类', 'unassigned');
-    await fixed.waitFor({ state: 'hidden' });
+    await assertFixed('甲');
+    await apply('', 'unassigned');
+    await fixedHeader.waitFor({ state: 'hidden' });
     assert.deepEqual(await order(), originalOrder);
     assert.deepEqual(await orderWithinB(), groupOrders[0].entryIds);
     assert.equal(await remainsCollapsed(), true);
@@ -155,8 +175,9 @@ for (const host of ['st', 'tt']) test(host + ': the last successfully applied ta
       [uiKey]: JSON.stringify({ pinAppliedGroup: true, collapsedGroups: ['甲', '丙'] }),
     } });
     await open();
-    await waitOrder(originalOrder);
-    await assertFixed('标签甲');
-    assert.equal(await section('标签甲').evaluate(element => element.open), false);
+    await assertFixed('甲');
+    assert.deepEqual(await order(), originalOrder);
+    assert.equal(await fixedHeader.evaluate(node => node.parentElement.open), false);
+    assert.equal(await section('甲').isVisible(), false);
     assert.equal(await remainsCollapsed(), true);
   }, { viewport: { width: 1280, height: 580 } }));

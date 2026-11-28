@@ -6,7 +6,7 @@ const catalogKey = 'st_api_manager_catalog_v2';
 const uiKey = 'st_api_manager_ui_v1';
 const connectionKey = 'st_api_manager_connection_v2';
 const searchLabel = '搜索模型名称或备注';
-const originalOrder = ['未分类', '标签甲', '标签乙', '标签丙'];
+const originalOrder = ['', '甲', '乙', '丙'];
 
 for (const host of ['st', 'tt']) test(host + ': the main search keeps matching models in their tag groups',
   { timeout: 35000 }, () => withBrowser(host, async ({ tab, open, stores, origin, flush, assertConnection }) => {
@@ -35,16 +35,17 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     await open();
     const main = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
     const search = main.getByRole('searchbox', { name: searchLabel, exact: true });
-    const fixedTag = main.locator('.catalog-fixed-group[role="status"] .catalog-fixed-group-name').filter({ hasText: /^标签乙$/ });
-    const section = name => main.locator('.api-config-list > details').filter({
-      has: tab.locator('summary').getByText(name, { exact: true }),
-    });
-    const closed = name => section(name).evaluate(element => !element.open);
+    const fixedDrawer = main.locator('.catalog-fixed-group > details[data-group-id="乙"]');
+    const fixedTag = fixedDrawer.locator('summary.catalog-group-heading');
+    const section = id => main.locator('.api-config-list > [data-group-id="' + id + '"]');
+    const fixedBody = section('乙');
+    const closed = id => (id === '乙' ? fixedDrawer : section(id)).evaluate(element => !element.open);
     const waitOrder = expected => tab.waitForFunction(expected => {
-      const headings = document.querySelectorAll('dialog[open] .api-config-list > details > summary b');
-      return JSON.stringify([...headings].map(heading => heading.textContent)) === JSON.stringify(expected);
+      const sections = document.querySelectorAll('dialog[open] .api-config-list > [data-group-id]');
+      const groups = [...sections].filter(section => section.querySelector('.catalog-config-card'));
+      return JSON.stringify(groups.map(section => section.dataset.groupId)) === JSON.stringify(expected);
     }, expected);
-    const cards = name => section(name).locator('.catalog-config-card').evaluateAll(elements =>
+    const cards = id => section(id).locator('.catalog-config-card').evaluateAll(elements =>
       elements.map(element => element.dataset.entryId));
 
     await search.waitFor();
@@ -54,55 +55,65 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
       return Boolean(toolbar.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING);
     }));
     await waitOrder(originalOrder);
-    assert.equal(await closed('标签乙'), true);
-    assert.equal(await closed('标签丙'), true);
+    assert.equal(await closed('乙'), true);
+    assert.equal(await closed('丙'), true);
     await flush();
     const snapshot = { ...stores.get('one').values };
 
     await fixedTag.waitFor();
+    assert.equal(await fixedTag.locator('b').textContent(), '标签乙');
+    assert.equal(await fixedTag.getAttribute('aria-controls'), await fixedBody.getAttribute('id'));
+    assert.equal(await main.getByText('标签乙', { exact: true }).count(), 1);
     await search.fill('  ALPHA  ');
-    await waitOrder(['标签甲', '标签乙']);
+    await waitOrder(['甲', '乙']);
     assert.equal(await fixedTag.isVisible(), true);
-    assert.equal(await closed('标签乙'), false);
-    assert.deepEqual(await cards('标签乙'), ['shared']);
-    assert.deepEqual(await cards('标签甲'), ['shared', 'named']);
+    assert.equal(await closed('乙'), false);
+    assert.deepEqual(await cards('乙'), ['shared']);
+    assert.deepEqual(await cards('甲'), ['shared', 'named']);
     assert.ok(await search.evaluate(input => input === document.activeElement));
 
     await search.fill('alpha RAPID');
-    await waitOrder(['标签甲', '标签乙']);
-    assert.deepEqual(await cards('标签甲'), ['shared']);
+    await waitOrder(['甲', '乙']);
+    assert.deepEqual(await cards('甲'), ['shared']);
 
     await search.fill('签名 Blue');
-    await waitOrder(['标签乙']);
-    assert.deepEqual(await cards('标签乙'), ['noted-key']);
-    await section('标签乙').locator('summary').click();
-    assert.equal(await closed('标签乙'), true);
+    await waitOrder(['乙']);
+    assert.deepEqual(await cards('乙'), ['noted-key']);
+    await fixedTag.click();
+    assert.equal(await closed('乙'), true);
+    await fixedBody.waitFor({ state: 'hidden' });
     await search.fill('BLUE');
-    await waitOrder(['标签乙']);
-    assert.equal(await closed('标签乙'), false);
+    await waitOrder(['乙']);
+    assert.equal(await closed('乙'), false);
 
     await search.fill('GLOBAL-model');
-    await waitOrder(['未分类']);
-    assert.deepEqual(await cards('未分类'), ['unassigned']);
+    await waitOrder(['']);
+    assert.deepEqual(await cards(''), ['unassigned']);
     await search.fill('fixture-no-results');
     await waitOrder([]);
+    await main.getByText('没有匹配的模型，试试其他关键词。', { exact: true }).waitFor();
     assert.equal(await fixedTag.isVisible(), true);
+    assert.equal(await fixedTag.locator('.category-count').textContent(), '(0)');
+    assert.equal(await fixedTag.getByRole('button', { name: '排序', exact: true }).isDisabled(), true);
+    assert.equal(await fixedBody.isVisible(), false);
     await search.fill('');
     await waitOrder(originalOrder);
-    assert.equal(await closed('标签乙'), true);
-    assert.equal(await closed('标签丙'), true);
-    assert.deepEqual(await cards('标签乙'), ['shared', 'noted-key']);
+    assert.equal(await closed('乙'), true);
+    assert.equal(await closed('丙'), true);
+    assert.deepEqual(await cards('乙'), ['shared', 'noted-key']);
 
     await search.fill('fixture-title');
-    await waitOrder(['标签甲']);
+    await waitOrder(['甲']);
     assert.equal(await fixedTag.isVisible(), true);
+    assert.equal(await fixedTag.locator('.category-count').textContent(), '(0)');
+    assert.deepEqual(await cards('乙'), []);
     await main.getByRole('button', { name: '关闭', exact: true }).click();
     await main.waitFor({ state: 'hidden' });
     await tab.locator('#st-api-manager-extension-button').click();
     await search.waitFor();
     assert.equal(await search.inputValue(), '');
     await waitOrder(originalOrder);
-    assert.equal(await closed('标签乙'), true);
+    assert.equal(await closed('乙'), true);
     await flush();
     assert.deepEqual(stores.get('one').values, snapshot);
     await assertConnection();
