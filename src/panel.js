@@ -619,6 +619,16 @@ function mountCatalogPanel(host, storage, connection) {
       if (frozen) {
         // Both pieces stay in the original list slot. The title sticks against the full list.
         drawer.classList.add('catalog-frozen-group');
+        // Host themes may make either layer translucent. This row covers moving cards.
+        for (const layer of [drawer, header]) {
+          layer.style.setProperty('background', 'var(--catalog-group-surface)', 'important');
+          layer.style.setProperty('opacity', '1', 'important');
+          layer.style.setProperty('filter', 'none', 'important');
+          layer.style.setProperty('mix-blend-mode', 'normal', 'important');
+          layer.style.setProperty('backdrop-filter', 'none', 'important');
+          layer.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+        }
+        header.style.setProperty('margin-block', '0', 'important');
         wrap.id = 'st-api-manager-frozen-group-content';
         wrap.classList.add('catalog-frozen-group-body');
         wrap.dataset.groupId = section.id;

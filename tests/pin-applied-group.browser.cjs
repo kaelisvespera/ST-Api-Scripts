@@ -134,6 +134,41 @@ for (const host of ['st', 'tt']) test(host + ': the current tag freezes only aft
     await scrollTo(Math.floor(later.y - 80));
     assert.ok((await headerGeometry(laterHeader)).y >= 79 && (await headerGeometry(laterHeader)).y <= 82);
     await assertAtTop();
+
+    // A stronger host drawer theme can make a header translucent while it still wins hit testing.
+    const translucentTheme = await tab.addStyleTag({ content: `
+      :is(#test-host-theme, .api-config-list) > .catalog-frozen-group,
+      :is(#test-host-theme, .api-config-list) > .catalog-frozen-group > .inline-drawer-header {
+        background: rgb(210 170 115 / 25%) !important;
+        opacity: .6 !important;
+      }
+    ` });
+    const overlappingCard = laterHeader.locator('..').locator('.catalog-config-card').first();
+    const frozenBox = await fixedHeader.boundingBox();
+    const cardBox = await overlappingCard.boundingBox();
+    const cardTop = await scroller.evaluate(node => node.scrollTop) + cardBox.y - frozenBox.y;
+    await scrollTo(Math.ceil(cardTop) + 8);
+    await assertAtTop();
+    const headerBox = await fixedHeader.boundingBox();
+    const covered = {
+      x: Math.ceil(headerBox.x + headerBox.width / 2), y: Math.ceil(headerBox.y),
+      width: 20, height: Math.floor(headerBox.y + headerBox.height) - Math.ceil(headerBox.y),
+    };
+    const exposed = { x: covered.x, y: Math.ceil(headerBox.y + headerBox.height) + 4, width: 20, height: 8 };
+    assert.ok(await overlappingCard.evaluate((node, clip) => document.elementsFromPoint(
+      clip.x + clip.width / 2, clip.y + clip.height / 2,
+    ).includes(node), covered), 'the changing card must overlap the frozen title');
+    const paintCard = color => overlappingCard.evaluate((node, value) =>
+      node.style.setProperty('background', value, 'important'), color);
+    await paintCard('#ff00ff');
+    const coveredBefore = await tab.screenshot({ clip: covered });
+    const exposedBefore = await tab.screenshot({ clip: exposed });
+    await paintCard('#00ffff');
+    assert.ok(!exposedBefore.equals(await tab.screenshot({ clip: exposed })), 'the exposed card pixels must change');
+    assert.ok(coveredBefore.equals(await tab.screenshot({ clip: covered })), 'the frozen title must fully cover the card behind it');
+    await overlappingCard.evaluate(node => node.style.removeProperty('background'));
+    await translucentTheme.evaluate(node => node.remove());
+
     await scrollTo(await scroller.evaluate(node => node.scrollHeight - node.clientHeight));
     await assertAtTop();
     await scrollTo(0);

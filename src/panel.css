@@ -174,7 +174,11 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
   display: flex; flex: 1; align-items: center; gap: var(--st-orb-spacing-sm); min-width: 0;
 }
 .st-api-manager .api-config-list > .catalog-frozen-group {
-  position: sticky !important; inset-block-start: 0; z-index: 4;
+  position: sticky !important; inset-block-start: 0; z-index: 4 !important;
+  margin-block-start: 0 !important; border-radius: 0 !important; isolation: isolate;
+}
+.st-api-manager .api-config-list:has(> .catalog-frozen-group) > :not(.catalog-frozen-group) {
+  z-index: 0 !important;
 }
 .st-api-manager .catalog-frozen-group:has(+ .catalog-frozen-group-body:not([hidden])) {
   margin-block-end: calc(-1 * var(--st-orb-spacing-lg));
