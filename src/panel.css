@@ -173,11 +173,15 @@ dialog.st-api-manager[data-nested]::backdrop { background: transparent; }
 .st-api-manager .catalog-group-label {
   display: flex; flex: 1; align-items: center; gap: var(--st-orb-spacing-sm); min-width: 0;
 }
-.st-api-manager .catalog-group-pin {
-  flex-shrink: 0; white-space: nowrap; padding: 2px 5px; border-radius: 4px;
-  background: var(--catalog-control-selected); color: var(--catalog-reading-ink);
-  font-size: var(--st-orb-font-xs); font-weight: 600; line-height: 1.2;
+.st-api-manager .catalog-fixed-group {
+  display: flex; align-items: center; gap: 8px; min-height: 36px;
+  margin: 0 0 8px; padding: 4px 9px; border: 1px solid var(--catalog-line); border-radius: 5px;
+  background: var(--catalog-group-surface); color: var(--catalog-reading-ink);
 }
+.st-api-manager .catalog-fixed-group-context {
+  flex-shrink: 0; white-space: nowrap; font-size: var(--st-orb-font-sm);
+}
+.st-api-manager .catalog-fixed-group-name { min-width: 0; overflow-wrap: anywhere; }
 .st-api-manager .category-tag {
   display: inline-flex; flex-wrap: nowrap; gap: 5px; min-width: 0; max-width: 100%;
   height: auto; margin: 0; border-radius: 1em; white-space: normal;
@@ -782,12 +786,12 @@ dialog.st-api-manager.popup.st-api-manager-native-dialog summary.catalog-group-h
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-.st-api-manager .catalog-group-heading > .catalog-group-rail {
+.st-api-manager :is(.catalog-group-heading, .catalog-fixed-group) > .catalog-group-rail {
   display: block; box-sizing: border-box; flex: 0 0 7px; inline-size: 7px;
   align-self: stretch; margin: 3px 0; border-radius: 4px;
   border: 1px solid var(--catalog-reading-ink); pointer-events: none;
 }
-.st-api-manager .catalog-group-heading .category-color-dot {
+.st-api-manager :is(.catalog-group-heading, .catalog-fixed-group) .category-color-dot {
   box-shadow: none; outline: 1px solid var(--catalog-reading-ink); outline-offset: 1px;
 }
 @media (min-width: 800px) and (any-pointer: fine) {

@@ -6,7 +6,7 @@ const catalogKey = 'st_api_manager_catalog_v2';
 const uiKey = 'st_api_manager_ui_v1';
 const connectionKey = 'st_api_manager_connection_v2';
 const searchLabel = '搜索模型名称或备注';
-const originalOrder = ['标签乙', '未分类', '标签甲', '标签丙'];
+const originalOrder = ['未分类', '标签甲', '标签乙', '标签丙'];
 
 for (const host of ['st', 'tt']) test(host + ': the main search keeps matching models in their tag groups',
   { timeout: 35000 }, () => withBrowser(host, async ({ tab, open, stores, origin, flush, assertConnection }) => {
@@ -35,6 +35,7 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     await open();
     const main = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
     const search = main.getByRole('searchbox', { name: searchLabel, exact: true });
+    const fixedTag = main.locator('.catalog-fixed-group[role="status"] .catalog-fixed-group-name').filter({ hasText: /^标签乙$/ });
     const section = name => main.locator('.api-config-list > details').filter({
       has: tab.locator('summary').getByText(name, { exact: true }),
     });
@@ -58,15 +59,17 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     await flush();
     const snapshot = { ...stores.get('one').values };
 
+    await fixedTag.waitFor();
     await search.fill('  ALPHA  ');
-    await waitOrder(['标签乙', '标签甲']);
+    await waitOrder(['标签甲', '标签乙']);
+    assert.equal(await fixedTag.isVisible(), true);
     assert.equal(await closed('标签乙'), false);
     assert.deepEqual(await cards('标签乙'), ['shared']);
     assert.deepEqual(await cards('标签甲'), ['shared', 'named']);
     assert.ok(await search.evaluate(input => input === document.activeElement));
 
     await search.fill('alpha RAPID');
-    await waitOrder(['标签乙', '标签甲']);
+    await waitOrder(['标签甲', '标签乙']);
     assert.deepEqual(await cards('标签甲'), ['shared']);
 
     await search.fill('签名 Blue');
@@ -83,6 +86,7 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     assert.deepEqual(await cards('未分类'), ['unassigned']);
     await search.fill('fixture-no-results');
     await waitOrder([]);
+    assert.equal(await fixedTag.isVisible(), true);
     await search.fill('');
     await waitOrder(originalOrder);
     assert.equal(await closed('标签乙'), true);
@@ -91,6 +95,7 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
 
     await search.fill('fixture-title');
     await waitOrder(['标签甲']);
+    assert.equal(await fixedTag.isVisible(), true);
     await main.getByRole('button', { name: '关闭', exact: true }).click();
     await main.waitFor({ state: 'hidden' });
     await tab.locator('#st-api-manager-extension-button').click();

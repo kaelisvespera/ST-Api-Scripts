@@ -160,7 +160,10 @@ function mountCatalogPanel(host, storage, connection) {
   }
   mainSearch.addEventListener('input', updateMainSearch);
   mainSearch.addEventListener('compositionend', updateMainSearch);
-  main.heading.append(toolbar, mainSearch);
+  const fixedGroup = make('div', 'catalog-fixed-group');
+  fixedGroup.setAttribute('role', 'status');
+  fixedGroup.hidden = true;
+  main.heading.append(toolbar, mainSearch, fixedGroup);
   const siteId = row => JSON.stringify([row.site, row.source, row.url]);
   const rowTitle = row => row.model ? '[' + row.site + '] ' + row.model : row.site;
   function displayAlias(row) {
@@ -176,12 +179,15 @@ function mountCatalogPanel(host, storage, connection) {
     return (knownGroup ? suffix : row.name).slice(0, -model.length).trim();
   }
   const groupColor = group => /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : '#3b82f6';
-  function colorGroupHeading(heading, group) {
-    heading.classList.add('catalog-colored-group-heading');
+  function groupRail(group) {
     const rail = make('span', 'catalog-group-rail');
     rail.style.backgroundColor = groupColor(group);
     rail.setAttribute('aria-hidden', 'true');
-    heading.append(rail);
+    return rail;
+  }
+  function colorGroupHeading(heading, group) {
+    heading.classList.add('catalog-colored-group-heading');
+    heading.append(groupRail(group));
   }
   function groupMarker(group) {
     const iconName = group.icon;
@@ -191,6 +197,23 @@ function mountCatalogPanel(host, storage, connection) {
     if (marker.classList.contains('category-color-dot')) marker.style.backgroundColor = groupColor(group);
     marker.setAttribute('aria-hidden', 'true');
     return marker;
+  }
+  let displayedGroup;
+  function updateFixedGroup({ entries, groups }) {
+    let group;
+    if (storage.pinAppliedGroup) {
+      const activeRow = entries.find(row => row.id === connection.activeRowId());
+      const appliedGroup = connection.activeGroupId();
+      // A legacy application lacks a source tag. Prefer the first tag in catalog order.
+      group = groups.find(candidate => activeRow?.groupIds.includes(candidate.id) &&
+        (appliedGroup === undefined || appliedGroup === candidate.id));
+    }
+    if (group === displayedGroup) return;
+    displayedGroup = group;
+    fixedGroup.hidden = !group;
+    fixedGroup.replaceChildren();
+    if (group) fixedGroup.append(groupRail(group), groupMarker(group),
+      make('span', 'catalog-fixed-group-context', '当前应用'), make('strong', 'catalog-fixed-group-name', group.name));
   }
   function tagIconPicker(selection) {
     const field = make('fieldset', 'catalog-tag-icon-picker');
@@ -350,16 +373,11 @@ function mountCatalogPanel(host, storage, connection) {
     }
     return fields;
   }
-  function revealPinnedHeading(heading, focus = false) {
-    if (!heading) return;
-    if (focus) heading.focus({ preventScroll: true });
-    main.scroll.scrollTo({ top: 0, behavior: 'instant' });
-  }
-  function focusRowAction(row, group, selector = '.catalog-card-edit') {
+  function focusRowAction(row, group, selector = '.catalog-card-edit', options) {
     const cards = [...main.scroll.querySelectorAll('.catalog-config-card')].filter(card =>
       card.dataset.entryId === row.id && card.getClientRects().length);
     const card = cards.find(card => card.dataset.groupId === (group?.id ?? '')) ?? cards[0];
-    (card?.querySelector(selector) ?? main.heading.querySelector('button'))?.focus();
+    (card?.querySelector(selector) ?? main.heading.querySelector('button'))?.focus(options);
   }
   function rowActions(row, group) {
     const wrapper = make('div', 'secretKeyManagerItemActions');
@@ -374,9 +392,8 @@ function mountCatalogPanel(host, storage, connection) {
       focusRowAction(row, group, selector);
     };
     const apply = action('应用', () => run(main, () => connection.apply(row, group?.id ?? null), undefined, () => {
-      const heading = refresh();
-      if (heading) revealPinnedHeading(heading, true);
-      else focusRowAction(row, group, '.catalog-card-apply');
+      refresh();
+      focusRowAction(row, group, '.catalog-card-apply', { preventScroll: true });
     }), 'check');
     apply.classList.add('catalog-card-apply');
     const editButton = action('编辑', event => {
@@ -519,6 +536,7 @@ function mountCatalogPanel(host, storage, connection) {
     resetDisclosures();
     const catalog = storage.catalog;
     const { entries, groups } = catalog;
+    updateFixedGroup(catalog);
     if (sortingGroup !== undefined && sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)) {
       sortingGroup = undefined;
     }
@@ -536,16 +554,6 @@ function mountCatalogPanel(host, storage, connection) {
     const list = make('div', 'api-config-list');
     panel.append(list);
     const sections = [{ id: unassigned, name: '未分类' }, ...groups];
-    let pinnedGroup;
-    let pinnedHeading;
-    if (storage.pinAppliedGroup) {
-      const activeRow = entries.find(row => row.id === connection.activeRowId());
-      const appliedGroup = connection.activeGroupId();
-      // Legacy connections have no source group. Use the first current tag in catalog order.
-      pinnedGroup = groups.find(group => activeRow?.groupIds.includes(group.id) &&
-        (appliedGroup === undefined || appliedGroup === group.id));
-      if (pinnedGroup) sections.unshift(sections.splice(sections.indexOf(pinnedGroup), 1)[0]);
-    }
     for (const section of sections) {
       const isUnassigned = section.id === unassigned;
       const orderedRows = orderedGroupEntries(catalog, isUnassigned ? null : section.id);
@@ -564,10 +572,6 @@ function mountCatalogPanel(host, storage, connection) {
         label.append(groupMarker(section));
       }
       label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
-      if (section === pinnedGroup) {
-        pinnedHeading = header;
-        label.append(make('span', 'catalog-group-pin', '已置顶'));
-      }
       const arrow = icon(drawer.open ? 'circle-chevron-up' : 'circle-chevron-down');
       arrow.classList.add('inline-drawer-icon');
       const sortToggle = button(sortingGroup === section.id ? '完成' : '排序', event => {
@@ -621,7 +625,6 @@ function mountCatalogPanel(host, storage, connection) {
     if (!list.childElementCount) list.append(make('p', 'api-keys-empty',
       matching ? '没有匹配的模型，试试其他关键词。' : '暂无 API 配置'));
     main.scroll.replaceChildren(panel);
-    return pinnedHeading;
   }
   function manager() {
     const pane = popup('API 管理');
@@ -693,9 +696,9 @@ function mountCatalogPanel(host, storage, connection) {
     const pin = make('input');
     pin.type = 'checkbox';
     pin.checked = storage.pinAppliedGroup;
-    pinLabel.append(make('span', '', '当前应用分组置顶'), pin);
+    pinLabel.append(make('span', '', '固定当前应用标签'), pin);
     pin.addEventListener('change', async () => {
-      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, () => revealPinnedHeading(refresh()));
+      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, () => updateFixedGroup(storage.catalog));
       pin.checked = storage.pinAppliedGroup;
       if (pane.dialog.open) pin.focus({ preventScroll: true });
     });
@@ -1201,9 +1204,8 @@ function mountCatalogPanel(host, storage, connection) {
     mainSearch.value = '';
     searchQuery = '';
     searchCollapsed.clear();
-    const pinnedHeading = refresh();
+    refresh();
     main.open();
-    revealPinnedHeading(pinnedHeading);
   };
 }
 
