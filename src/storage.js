@@ -233,8 +233,9 @@ async function openCatalogStorage(host, context, browserStorage) {
       return typeof name === 'string' && name.startsWith('API Manager - ') ? name : null;
     },
     setQrSetName: name => transact(() => persist(state, { [uiKey]: JSON.stringify({ ...savedObject(uiKey), qrSetName: name }) })),
-    get pinAppliedGroup() { return savedObject(uiKey).pinAppliedGroup === true; },
-    setPinAppliedGroup: enabled => transact(() => persist(state, {
+    // Keep the stored flag so an existing opt-in carries over to expanded headers.
+    get stickyExpandedGroups() { return savedObject(uiKey).pinAppliedGroup === true; },
+    setStickyExpandedGroups: enabled => transact(() => persist(state, {
       [uiKey]: JSON.stringify({ ...savedObject(uiKey), pinAppliedGroup: enabled === true }),
     })),
     get collapsedGroups() { return collapsedGroups(); },

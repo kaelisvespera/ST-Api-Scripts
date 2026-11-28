@@ -48,17 +48,35 @@ for (const mode of ['st', 'tt']) test(mode + ': tag icons can be created, change
   await tag.locator('.catalog-tag-icon--gemini').waitFor();
   await flush();
   assert.equal(savedTag().icon, 'gemini');
+  await button(tag, '重命名或改色').click();
+  await editor.getByRole('radio', { name: 'DeepSeek', exact: true }).check();
+  await button(editor, '保存').click();
+  const whale = tag.locator('.catalog-tag-icon--deepseek');
+  await whale.waitFor();
+  await flush();
+  assert.equal(savedTag().icon, 'deepseek');
+  assert.equal(savedTag().color, color);
+  const appearance = await whale.evaluate(async el => {
+    const { backgroundColor, maskImage } = getComputedStyle(el);
+    const mask = new Image();
+    mask.src = maskImage.slice(5, -2);
+    await mask.decode();
+    return { backgroundColor, width: mask.naturalWidth, height: mask.naturalHeight };
+  });
+  assert.equal(appearance.backgroundColor, 'rgb(77, 107, 254)');
+  assert.ok(appearance.width > appearance.height && appearance.height > 0);
   await button(tags, '取消').click();
   await button(settings, '关闭').click();
   const group = main.locator('details.inline-drawer').filter({ hasText: name });
-  await group.locator('summary .catalog-tag-icon--gemini').waitFor();
+  await group.locator('summary .catalog-tag-icon--deepseek').waitFor();
+  assert.equal(await group.locator('.catalog-group-rail').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(162, 52, 101)');
 
   await open();
-  await group.locator('summary .catalog-tag-icon--gemini').waitFor();
+  await group.locator('summary .catalog-tag-icon--deepseek').waitFor();
   await button(main, '设置').click();
   await button(settings, '标签设置').click();
   await button(tag, '重命名或改色').click();
-  assert.equal(await editor.getByRole('radio', { name: 'Gemini' }).isChecked(), true);
+  assert.equal(await editor.getByRole('radio', { name: 'DeepSeek' }).isChecked(), true);
   await editor.getByRole('radio', { name: '色点' }).check();
   await button(editor, '保存').click();
   await tag.locator('.category-color-dot').waitFor();

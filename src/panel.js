@@ -192,20 +192,25 @@ function mountCatalogPanel(host, storage, connection) {
     marker.setAttribute('aria-hidden', 'true');
     return marker;
   }
-  function fixedTag({ entries, groups }) {
-    if (!storage.pinAppliedGroup) return;
+  function activeGroupKey({ entries, groups }) {
     const activeRow = entries.find(row => row.id === connection.activeRowId());
+    if (!activeRow) return;
     const appliedGroup = connection.activeGroupId();
-    // A legacy application lacks a source tag. Prefer the first tag in catalog order.
-    return groups.find(group => activeRow?.groupIds.includes(group.id) &&
-      (appliedGroup === undefined || appliedGroup === group.id));
+    if (activeRow.groupIds.includes(appliedGroup)) return appliedGroup;
+    // If the source tag is absent, use the first current tag in catalog order.
+    return groupKey(groups.find(group => activeRow.groupIds.includes(group.id)));
+  }
+  function appliedBadge() {
+    const badge = make('span', 'active-badge-sm');
+    badge.append(icon('check'), '已应用');
+    return badge;
   }
   function tagIconPicker(selection) {
     const field = make('fieldset', 'catalog-tag-icon-picker');
     field.append(make('legend', '', '标签图标'));
     const choices = make('div', 'catalog-tag-icon-choices');
     const radios = [];
-    for (const [value, label] of [['', '色点'], ['claude', 'Claude'], ['gemini', 'Gemini']]) {
+    for (const [value, label] of [['', '色点'], ['claude', 'Claude'], ['gemini', 'Gemini'], ['deepseek', 'DeepSeek']]) {
       const option = make('label', 'catalog-tag-icon-choice');
       const input = make('input');
       input.type = 'radio';
@@ -425,9 +430,7 @@ function mountCatalogPanel(host, storage, connection) {
     const meta = rowMetadata(row, presentation, false);
     if (connection.activeRowId() === row.id) {
       card.classList.add('secretKeyManagerItem--applied');
-      const badge = make('span', 'active-badge-sm');
-      badge.append(icon('check'), '已应用');
-      meta.append(badge);
+      meta.append(appliedBadge());
     }
     information.append(meta);
     const notes = rowFields('catalog-card-notes', [['密钥备注', keyNote], ['模型备注', row.modelNote]]);
@@ -517,17 +520,20 @@ function mountCatalogPanel(host, storage, connection) {
     }
     return presentations;
   }
-  function revealFrozenGroupBody(body) {
-    if (!body || body.hidden) return;
-    const headerHeight = body.previousElementSibling.getBoundingClientRect().height;
-    const viewportTop = main.scroll.getBoundingClientRect().top + main.scroll.clientTop;
-    main.scroll.scrollBy({ top: body.getBoundingClientRect().top - viewportTop - headerHeight, behavior: 'instant' });
+  // Keep the original summary solid even when the host styles drawers as glass.
+  function keepGroupLayerOpaque(layer) {
+    layer.style.setProperty('opacity', '1', 'important');
+    layer.style.setProperty('filter', 'none', 'important');
+    layer.style.setProperty('mix-blend-mode', 'normal', 'important');
+    layer.style.setProperty('backdrop-filter', 'none', 'important');
+    layer.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
   }
   function refresh() {
     resetDisclosures();
     const catalog = storage.catalog;
     const { entries, groups } = catalog;
-    const frozenGroup = fixedTag(catalog);
+    const activeGroup = activeGroupKey(catalog);
+    const stickyExpandedGroups = storage.stickyExpandedGroups;
     if (sortingGroup !== undefined && sortingGroup !== unassigned && !groups.some(group => group.id === sortingGroup)) {
       sortingGroup = undefined;
     }
@@ -543,6 +549,7 @@ function mountCatalogPanel(host, storage, connection) {
     }
     const panel = make('div', 'api-manager-panel');
     const list = make('div', 'api-config-list');
+    list.classList.toggle('catalog-sticky-expanded', stickyExpandedGroups);
     panel.append(list);
     const sections = [{ id: unassigned, name: '未分类' }, ...groups];
     for (const section of sections) {
@@ -550,21 +557,38 @@ function mountCatalogPanel(host, storage, connection) {
       const orderedRows = orderedGroupEntries(catalog, isUnassigned ? null : section.id);
       const rows = matching ? orderedRows.filter(row => matching.has(row.id)) : orderedRows;
       if (sortingGroup === section.id && (!rows.length || groupCollapsed.has(section.id))) sortingGroup = undefined;
-      const frozen = section === frozenGroup;
-      if (!frozen && !rows.length && (matching || isUnassigned)) continue;
+      if (!rows.length && (matching || isUnassigned)) continue;
+      const active = section.id === activeGroup;
+      const sticky = stickyExpandedGroups && rows.length > 0;
       const drawer = make('details', 'inline-drawer');
       drawer.dataset.groupId = isUnassigned ? '' : section.id;
+      drawer.toggleAttribute('data-catalog-empty', !rows.length);
       drawer.open = !groupCollapsed.has(section.id);
       // Native details owns the state. The host delegates .inline-drawer-toggle
       // and would independently hide the same content with inline styles.
       const header = make('summary', 'inline-drawer-header catalog-group-heading');
       const label = make('span', 'catalog-group-label');
-      const name = make('b', '', section.name);
+      const title = make('span', 'catalog-group-title');
       if (!isUnassigned) {
         colorGroupHeading(header, section);
-        label.append(groupMarker(section));
+        title.append(groupMarker(section));
       }
-      label.append(name, make('small', 'category-count', '(' + rows.length + ')'));
+      title.append(make('b', '', section.name), make('small', 'category-count', '(' + rows.length + ')'));
+      label.append(title);
+      if (active) {
+        header.classList.add('catalog-group-active');
+        const badge = appliedBadge();
+        badge.classList.add('catalog-group-active-badge');
+        label.append(badge);
+        header.style.setProperty('border-color', 'var(--catalog-applied-accent)', 'important');
+      }
+      if (sticky || active) {
+        keepGroupLayerOpaque(drawer);
+        keepGroupLayerOpaque(header);
+        header.style.setProperty('background', 'var(--catalog-group-heading-fill, var(--catalog-group-surface))', 'important');
+        header.style.setProperty('margin-block', '0', 'important');
+      }
+      if (sticky) drawer.style.setProperty('overflow', 'visible', 'important');
       const arrow = icon(drawer.open ? 'circle-chevron-up' : 'circle-chevron-down');
       arrow.classList.add('inline-drawer-icon');
       const sortToggle = button(sortingGroup === section.id ? '完成' : '排序', event => {
@@ -573,7 +597,6 @@ function mountCatalogPanel(host, storage, connection) {
         sortingGroup = sortingGroup === section.id ? undefined : section.id;
         if (sortingGroup !== undefined) groupCollapsed.delete(section.id);
         refresh();
-        if (frozen && sortingGroup === section.id) revealFrozenGroupBody(main.scroll.querySelector('.catalog-frozen-group-body'));
         focusSortToggle(section.id);
       }, sortingGroup === section.id ? 'check' : 'sort');
       sortToggle.classList.add('catalog-sort-toggle');
@@ -582,14 +605,35 @@ function mountCatalogPanel(host, storage, connection) {
       sortToggle.disabled = rows.length < 2 && sortingGroup !== section.id;
       header.append(label, sortToggle, arrow);
       const wrap = make('div', 'inline-drawer-content');
+      let revealCollapsedHeader = false;
+      if (sticky) {
+        header.addEventListener('click', () => {
+          if (!drawer.open) return;
+          const padding = Number.parseFloat(host.getComputedStyle(drawer).paddingBlockStart);
+          const naturalTop = drawer.getBoundingClientRect().top + drawer.clientTop + padding;
+          revealCollapsedHeader = header.getBoundingClientRect().top > naturalTop + 1;
+        });
+        // Native focus scrolling does not account for the summary covering the card.
+        wrap.addEventListener('focusin', event => {
+          const viewportTop = main.scroll.getBoundingClientRect().top + main.scroll.clientTop;
+          const { top, bottom } = header.getBoundingClientRect();
+          if (top > viewportTop + 1 || bottom <= viewportTop) return;
+          const targetTop = event.target.getBoundingClientRect().top;
+          if (targetTop < bottom) main.scroll.scrollBy({ top: targetTop - bottom - 4, behavior: 'instant' });
+        });
+      }
       drawer.addEventListener('toggle', () => {
         if (!drawer.isConnected) return;
         const changed = groupCollapsed.has(section.id) === drawer.open;
-        if (frozen) wrap.hidden = !drawer.open || !rows.length;
+        if (revealCollapsedHeader && !drawer.open) {
+          // Once sticky positioning ends, keep the title the user just activated in view.
+          const viewportTop = main.scroll.getBoundingClientRect().top + main.scroll.clientTop;
+          main.scroll.scrollBy({ top: header.getBoundingClientRect().top - viewportTop, behavior: 'instant' });
+        }
+        revealCollapsedHeader = false;
         if (drawer.open) {
           groupCollapsed.delete(section.id);
           for (const card of cards.children) disclosureChecks.get(card)?.();
-          if (frozen && changed) revealFrozenGroupBody(wrap);
         } else {
           groupCollapsed.add(section.id);
           if (sortingGroup === section.id) {
@@ -615,30 +659,8 @@ function mountCatalogPanel(host, storage, connection) {
       });
       if (sortingGroup === section.id) wrap.append(make('p', 'catalog-sort-help', '拖动排序柄或使用上下按钮、方向键调整，仅影响当前分组；每次移动自动保存。'));
       wrap.append(cards);
-      drawer.append(header);
-      if (frozen) {
-        // Both pieces stay in the original list slot. The title sticks against the full list.
-        drawer.classList.add('catalog-frozen-group');
-        // Host themes may make either layer translucent. This row covers moving cards.
-        for (const layer of [drawer, header]) {
-          layer.style.setProperty('background', 'var(--catalog-group-surface)', 'important');
-          layer.style.setProperty('opacity', '1', 'important');
-          layer.style.setProperty('filter', 'none', 'important');
-          layer.style.setProperty('mix-blend-mode', 'normal', 'important');
-          layer.style.setProperty('backdrop-filter', 'none', 'important');
-          layer.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
-        }
-        header.style.setProperty('margin-block', '0', 'important');
-        wrap.id = 'st-api-manager-frozen-group-content';
-        wrap.classList.add('catalog-frozen-group-body');
-        wrap.dataset.groupId = section.id;
-        wrap.hidden = !drawer.open || !rows.length;
-        header.setAttribute('aria-controls', wrap.id);
-        list.append(drawer, wrap);
-      } else {
-        drawer.append(wrap);
-        list.append(drawer);
-      }
+      drawer.append(header, wrap);
+      list.append(drawer);
     }
     if (!list.childElementCount || matching?.size === 0) list.append(make('p', 'api-keys-empty',
       matching ? '没有匹配的模型，试试其他关键词。' : '暂无 API 配置'));
@@ -710,17 +732,17 @@ function mountCatalogPanel(host, storage, connection) {
       });
       list.append(entry);
     }
-    const pinLabel = make('label', 'catalog-applied-group-toggle');
-    const pin = make('input');
-    pin.type = 'checkbox';
-    pin.checked = storage.pinAppliedGroup;
-    pinLabel.append(make('span', '', '固定当前应用标签'), pin);
-    pin.addEventListener('change', async () => {
-      await run(pane, () => storage.setPinAppliedGroup(pin.checked), undefined, refresh);
-      pin.checked = storage.pinAppliedGroup;
-      if (pane.dialog.open) pin.focus({ preventScroll: true });
+    const stickyLabel = make('label', 'catalog-sticky-groups-toggle');
+    const sticky = make('input');
+    sticky.type = 'checkbox';
+    sticky.checked = storage.stickyExpandedGroups;
+    stickyLabel.append(make('span', '', '展开分组标题吸顶'), sticky);
+    sticky.addEventListener('change', async () => {
+      await run(pane, () => storage.setStickyExpandedGroups(sticky.checked), undefined, refresh);
+      sticky.checked = storage.stickyExpandedGroups;
+      if (pane.dialog.open) sticky.focus({ preventScroll: true });
     });
-    pane.scroll.append(list, pinLabel);
+    pane.scroll.append(list, stickyLabel);
     pane.footer.append(closeButton(pane));
     pane.open();
   }

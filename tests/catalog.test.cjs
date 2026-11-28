@@ -133,10 +133,11 @@ test('catalog round trip keeps tag colors and supported icons and ignores an unk
     { id: 'a', name: 'Claude 标签', color: '#123456', icon: 'claude' },
     { id: 'b', name: 'Gemini 标签', color: '#345678', icon: 'gemini' },
     { id: 'c', name: '旧标签', color: '#abcdef' },
+    { id: 'deepseek', name: 'DeepSeek 标签', color: '#2d217a', icon: 'deepseek' },
     { id: 'd', name: '外部样式', color: '#fedcba', icon: 'https://invalid.example/icon.svg' },
   ] };
   const imported = api.readCatalog(JSON.parse(JSON.stringify(catalog))).catalog;
-  assert.deepEqual(plain(imported.groups), [...catalog.groups.slice(0, 3), { id: 'd', name: '外部样式', color: '#fedcba' }]);
+  assert.deepEqual(plain(imported.groups), [...catalog.groups.slice(0, 4), { id: 'd', name: '外部样式', color: '#fedcba' }]);
   assert.deepEqual(plain(api.readCatalog(plain(imported)).catalog), plain(imported));
 });
 
@@ -166,7 +167,7 @@ for (const mode of ['st', 'tt']) {
       { id: 'plain', name: '改回色点', color: '#fedcba', icon: 'gemini' },
     ] };
     const incoming = { ...local, groups: [
-      { ...local.groups[0], icon: 'gemini' },
+      { ...local.groups[0], icon: 'deepseek' },
       { id: 'plain', name: '改回色点', color: '#fedcba' },
     ] };
     const account = new Map([[accountV2, JSON.stringify({ revision: 'newer', catalog: incoming })]]);
@@ -176,7 +177,7 @@ for (const mode of ['st', 'tt']) {
     const conflict = await storage.pull();
     assert.equal(conflict.colors.length, 2);
     assert.equal(conflict.colors[0].localIcon, 'claude');
-    assert.equal(conflict.colors[0].accountIcon, 'gemini');
+    assert.equal(conflict.colors[0].accountIcon, 'deepseek');
     assert.equal(conflict.colors[1].accountIcon, undefined);
     await conflict.resolve('merge', new Map([['common', 'account'], ['plain', 'account']]));
     assert.deepEqual(plain(storage.catalog.groups), incoming.groups);

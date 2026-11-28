@@ -5,16 +5,18 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
   const geometryModel = 'fixture/model-4.6 【次】';
   const catalog = {
     format: 'st-api-manager-catalog', version: 2,
-    groups: [{ id: 'a', name: '测试组', color: '#3578ab' }],
+    groups: [{ id: 'a', name: '测试组', color: '#3578ab' },
+      { id: 'b', name: '可展开的另一个很长的测试分组名称'.repeat(3), color: '#8b4b9d' }],
     keyNotes: [{ id: 'short', note: '薯条' }, { id: 'multiple', note: '第一行\n第二行' }],
     entries: [
       ['[合成站点] model1', 'model1'],
       ['model2', 'model2'],
       [geometryModel, geometryModel],
       ['[合成站点]   model4', 'model4'],
+      ['model5', 'model5'],
     ].map(([name, model], index) => ({
       id: 'row' + (index + 1), name, model, site: '合成站点', modelNote: '0.06',
-      source: 'custom', url: origin + '/provider/v1', key: 'fixture-key-' + (index + 1), groupIds: ['a'],
+      source: 'custom', url: origin + '/provider/v1', key: 'fixture-key-' + (index + 1), groupIds: [index === 4 ? 'b' : 'a'],
       ...(index === 0 ? { credentialId: 'short' } : index === 1 ? { credentialId: 'multiple' } : {}),
     })),
   };
@@ -83,6 +85,9 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
   assert.equal(await toggle.evaluate(button => button === document.activeElement), true);
 
   const activeSelector = '.catalog-config-card.secretKeyManagerItem--applied';
+  const activeGroups = main.locator('summary.catalog-group-active');
+  const activeGroupBadge = activeGroups.locator('.catalog-group-active-badge');
+  const otherDrawer = main.locator('details[data-group-id="b"]');
   const checkHighlight = async (theme, followsHost) => {
     const accent = theme === 'light' ? [18, 99, 71, 255] : [136, 223, 171, 255];
     await tab.waitForFunction(({ theme, followsHost }) => {
@@ -117,7 +122,25 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
       const ordinaryFill = rgba(getComputedStyle(element.previousElementSibling).backgroundColor);
       const stripeColor = rgba(stripe.backgroundColor);
       const badgeFill = rgba(badgeStyle.backgroundColor);
+      const heading = element.closest('details').querySelector('summary');
+      const groupBadge = heading.querySelector('.catalog-group-active-badge');
+      const groupStyle = getComputedStyle(heading);
+      const groupBadgeStyle = getComputedStyle(groupBadge);
+      const groupFill = rgba(groupStyle.backgroundColor);
+      const ordinaryGroupFill = rgba(getComputedStyle(document.querySelector('details[data-group-id="b"] > summary')).backgroundColor);
+      const groupBadgeFill = rgba(groupBadgeStyle.backgroundColor);
+      const groupBorder = rgba(groupStyle.borderTopColor);
+      const groupBadgeBox = groupBadge.getBoundingClientRect();
+      const groupBox = heading.getBoundingClientRect();
+      const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
       return {
+        groupFill, ordinaryGroupFill, groupBadgeFill, groupBorder,
+        groupContrast: ratio(rgba(groupBadgeStyle.color), groupBadgeFill),
+        groupLabelContrast: ratio(rgba(getComputedStyle(heading.querySelector('b')).color), groupFill),
+        groupBorderContrast: Math.min(ratio(groupBorder, groupFill), ratio(groupBorder, ordinaryGroupFill)),
+        groupFits: heading.scrollWidth <= heading.clientWidth + 1 && groupBadgeBox.right <= groupBox.right &&
+          groupBadgeBox.bottom <= groupBox.bottom && [...heading.querySelectorAll('button, .inline-drawer-icon')]
+            .every(control => !overlaps(groupBadgeBox, control.getBoundingClientRect())),
         fill, ordinaryFill, stripeColor, badgeFill,
         badgeSize: parseFloat(badgeStyle.fontSize),
         stroke: rgba(cardStyle.borderInlineStartColor), outline: rgba(cardStyle.outlineColor),
@@ -133,19 +156,41 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
     assert.deepEqual([colors.outlineWidth, colors.outlineOffset, colors.stripeWidth, colors.pointerEvents],
       ['2px', '-2px', '4px', 'none']);
     assert.notDeepEqual(colors.fill, colors.ordinaryFill);
+    assert.deepEqual([colors.groupBadgeFill, colors.groupBorder], [accent, accent]);
+    assert.equal(colors.groupFill[3], 255);
+    assert.notDeepEqual(colors.groupFill, colors.ordinaryGroupFill);
+    assert.ok(colors.groupContrast >= 4.5 && colors.groupLabelContrast >= 4.5 &&
+      colors.groupBorderContrast >= 3 && colors.groupFits, JSON.stringify(colors));
     assert.ok(colors.badgeSize >= 13 && colors.textContrast >= 4.5 && colors.cardTextContrast >= 4.5
       && colors.stripeContrast >= 3 && colors.fits, JSON.stringify(colors));
   };
 
   assert.equal(await badge.locator('.fa-check[aria-hidden="true"]').count(), 1);
   assert.equal(await main.locator(activeSelector).count(), 1);
+  await activeGroupBadge.waitFor();
+  assert.equal(await activeGroupBadge.textContent(), '已应用');
+  assert.equal(await activeGroups.count(), 1);
+  assert.equal(await activeGroupBadge.locator('.fa-check[aria-hidden="true"]').count(), 1);
+  assert.equal(await activeGroups.locator('..').getAttribute('data-group-id'), 'a');
+  assert.equal(await main.locator('.catalog-sticky-expanded').count(), 0);
   await tab.setViewportSize({ width: mode === 'st' ? 320 : 390, height: 820 });
-  for (const [theme, ink, tint] of [['light', '#182631', '#edf1f4'], ['dark', '#f0e9df', '#252931']]) {
+  const hostTones = [
+    ['light', '#182631', '#edf1f4'],
+    ['dark', '#f0e9df', '#252931'],
+    ['dark', '#c8c8c8', '#343434'],
+  ];
+  for (const [theme, ink, tint] of hostTones) {
+    const previousTint = await main.evaluate(dialog => dialog.style.getPropertyValue('--catalog-host-tint'));
     await tab.evaluate(([ink, tint]) => {
       document.documentElement.style.setProperty('--SmartThemeBodyColor', ink);
       document.documentElement.style.setProperty('--SmartThemeBlurTintColor', tint);
     }, [ink, tint]);
+    await tab.waitForFunction(previousTone => document.querySelector('dialog.st-api-manager[open]')
+      ?.style.getPropertyValue('--catalog-host-tint') !== previousTone, previousTint);
     await checkHighlight(theme, true);
+    await tab.setViewportSize({ width: 1280, height: 900 });
+    await checkHighlight(theme, true);
+    await tab.setViewportSize({ width: mode === 'st' ? 320 : 390, height: 820 });
   }
 
   await main.getByRole('button', { name: '设置', exact: true }).click();
@@ -164,6 +209,24 @@ for (const mode of ['st', 'tt']) test(mode + ': compact cards switch sorting wit
   assert.equal(await multilineCard.locator('.active-badge-sm').count(), 0);
   assert.equal(await main.locator(activeSelector).count(), 1);
   assert.equal(await main.locator(activeSelector).getAttribute('data-entry-id'), 'row1');
+
+  await drawer.locator('summary b').click();
+  assert.equal(await drawer.evaluate(element => element.open), false);
+  assert.equal(await activeGroupBadge.isVisible(), true);
+  await otherDrawer.getByRole('button', { name: '应用', exact: true }).click();
+  await otherDrawer.locator('.catalog-group-active-badge').waitFor();
+  assert.equal(await drawer.locator('.catalog-group-active-badge').count(), 0);
+  assert.equal(await activeGroups.count(), 1);
+  await otherDrawer.locator('summary b').click();
+  assert.equal(await otherDrawer.evaluate(element => element.open), false);
+  assert.equal(await activeGroupBadge.isVisible(), true);
+  assert.ok(await activeGroupBadge.evaluate(badge => {
+    const header = badge.closest('summary');
+    const control = header.querySelector('.catalog-sort-toggle').getBoundingClientRect();
+    const rect = badge.getBoundingClientRect();
+    return header.scrollWidth <= header.clientWidth + 1 && rect.right <= control.left + 1 &&
+      rect.height > 0 && rect.width > 0;
+  }), 'the applied badge and sort control fit beside a long label');
 }));
 
 for (const mode of ['st','tt']) test(mode+': five actions, expandable text and host themes fit narrow screens', {timeout:60000},()=>withBrowser(mode,async({tab,open,stores,origin,assertConnection,flush})=>{
@@ -228,7 +291,7 @@ for (const mode of ['st','tt']) test(mode+': five actions, expandable text and h
   await tab.getByRole('dialog',{name:'管理分组',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
   await assertConnection();
   await card.locator('.catalog-card-site').click();
-  await main.getByText('已应用',{exact:true}).waitFor();
+  await card.getByText('已应用',{exact:true}).waitFor();
   assert.equal(await tab.evaluate(()=>hostConnection.model),catalog.entries[0].model);
   await flush();assert.deepEqual(JSON.parse(stores.get('one').values.st_api_manager_catalog_v2).catalog.entries,catalog.entries);
 }));

@@ -35,19 +35,14 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     await open();
     const main = tab.getByRole('dialog', { name: 'API 管理器', exact: true });
     const search = main.getByRole('searchbox', { name: searchLabel, exact: true });
-    const frozenDrawer = main.locator('.api-config-list > details.catalog-frozen-group[data-group-id="乙"]');
-    const frozenTag = frozenDrawer.locator('summary.catalog-group-heading');
-    const frozenBody = main.locator('.api-config-list > .catalog-frozen-group-body[data-group-id="乙"]');
-    const section = id => id === '乙' ? frozenBody : main.locator('.api-config-list > details[data-group-id="' + id + '"]');
-    const closed = id => (id === '乙' ? frozenDrawer : section(id)).evaluate(element => !element.open);
-    const waitOrder = (withCards, headings = withCards) => tab.waitForFunction(({ withCards, headings }) => {
-      const list = document.querySelector('dialog[open] .api-config-list');
-      const children = [...list.children];
-      const bodies = children.filter(section => section.querySelector('.catalog-config-card'));
-      const headers = children.filter(section => section.tagName === 'DETAILS');
-      const ids = sections => JSON.stringify(sections.map(section => section.dataset.groupId));
-      return ids(bodies) === JSON.stringify(withCards) && ids(headers) === JSON.stringify(headings);
-    }, { withCards, headings });
+    const section = id => main.locator('.api-config-list > details[data-group-id="' + id + '"]');
+    const heading = id => section(id).locator('summary.catalog-group-heading');
+    const closed = id => section(id).evaluate(element => !element.open);
+    const position = id => heading(id).evaluate(element => getComputedStyle(element).position);
+    const waitOrder = ids => tab.waitForFunction(expected => {
+      const groups = document.querySelectorAll('dialog[open] .api-config-list > details');
+      return JSON.stringify(Array.from(groups, group => group.dataset.groupId)) === JSON.stringify(expected);
+    }, ids);
     const cards = id => section(id).locator('.catalog-config-card').evaluateAll(elements =>
       elements.map(element => element.dataset.entryId));
 
@@ -63,17 +58,14 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     await flush();
     const snapshot = { ...stores.get('one').values };
 
-    await frozenTag.waitFor();
-    assert.equal(await main.locator('.catalog-fixed-group').count(), 0);
-    assert.equal(await frozenTag.locator('b').textContent(), '标签乙');
-    assert.equal(await frozenTag.getAttribute('aria-controls'), 'st-api-manager-frozen-group-content');
-    assert.equal(await frozenDrawer.evaluate(drawer => drawer.nextElementSibling?.id),
-      'st-api-manager-frozen-group-content');
+    await heading('乙').waitFor();
     assert.equal(await main.getByText('标签乙', { exact: true }).count(), 1);
+    assert.notEqual(await position('乙'), 'sticky');
     await search.fill('  ALPHA  ');
     await waitOrder(['甲', '乙']);
-    assert.equal(await frozenTag.isVisible(), true);
     assert.equal(await closed('乙'), false);
+    assert.equal(await position('甲'), 'sticky');
+    assert.equal(await position('乙'), 'sticky');
     assert.deepEqual(await cards('乙'), ['shared']);
     assert.deepEqual(await cards('甲'), ['shared', 'named']);
     assert.ok(await search.evaluate(input => input === document.activeElement));
@@ -85,23 +77,21 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     await search.fill('签名 Blue');
     await waitOrder(['乙']);
     assert.deepEqual(await cards('乙'), ['noted-key']);
-    await frozenTag.click();
+    await heading('乙').click();
     assert.equal(await closed('乙'), true);
-    await frozenBody.waitFor({ state: 'hidden' });
+    await section('乙').locator('.catalog-config-card').waitFor({ state: 'hidden' });
+    assert.notEqual(await position('乙'), 'sticky');
     await search.fill('BLUE');
     await waitOrder(['乙']);
     assert.equal(await closed('乙'), false);
 
     await search.fill('GLOBAL-model');
-    await waitOrder([''], ['', '乙']);
+    await waitOrder(['']);
     assert.deepEqual(await cards(''), ['unassigned']);
     await search.fill('fixture-no-results');
-    await waitOrder([], ['乙']);
+    await waitOrder([]);
     await main.getByText('没有匹配的模型，试试其他关键词。', { exact: true }).waitFor();
-    assert.equal(await frozenTag.isVisible(), true);
-    assert.equal(await frozenTag.locator('.category-count').textContent(), '(0)');
-    assert.equal(await frozenTag.getByRole('button', { name: '排序', exact: true }).isDisabled(), true);
-    assert.equal(await frozenBody.isVisible(), false);
+    assert.equal(await heading('乙').count(), 0);
     await search.fill('');
     await waitOrder(originalOrder);
     assert.equal(await closed('乙'), true);
@@ -109,10 +99,8 @@ for (const host of ['st', 'tt']) test(host + ': the main search keeps matching m
     assert.deepEqual(await cards('乙'), ['shared', 'noted-key']);
 
     await search.fill('fixture-title');
-    await waitOrder(['甲'], ['甲', '乙']);
-    assert.equal(await frozenTag.isVisible(), true);
-    assert.equal(await frozenTag.locator('.category-count').textContent(), '(0)');
-    assert.deepEqual(await cards('乙'), []);
+    await waitOrder(['甲']);
+    assert.equal(await heading('乙').count(), 0);
     await main.getByRole('button', { name: '关闭', exact: true }).click();
     await main.waitFor({ state: 'hidden' });
     await tab.locator('#st-api-manager-extension-button').click();

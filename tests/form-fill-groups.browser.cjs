@@ -15,7 +15,7 @@ test('the form fill picker shows ordered groups, searches all entries and preser
       format: 'st-api-manager-catalog', version: 2,
       groups: [
         { id: 'b', name: '乙组', color: '#a95502', icon: 'gemini' },
-        { id: 'a', name: '甲组', color: '#3b82f6' },
+        { id: 'a', name: '甲组', color: '#3b82f6', icon: 'deepseek' },
         { id: 'empty', name: '空标签', color: '#3b82f6' },
       ],
       entries: [shared, entry('a2', '甲组专属模型', ['a']), entry('b2', '乙组专属模型', ['b']), entry('free', '自由模型', [])],
@@ -56,6 +56,7 @@ test('the form fill picker shows ordered groups, searches all entries and preser
     assert.deepEqual(await rows('乙组'), ['[示例站点] 乙组专属模型', '[示例站点] 共用模型']);
     assert.deepEqual(await rows('甲组'), ['[示例站点] 甲组专属模型', '[示例站点] 共用模型']);
     assert.equal(await group('乙组').locator('summary .catalog-tag-icon--gemini').count(), 1);
+    assert.equal(await group('甲组').locator('summary .catalog-tag-icon--deepseek').count(), 1);
     assert.equal(await group('甲组').evaluate(el => el.open), false);
 
     const search = picker.getByRole('searchbox');
